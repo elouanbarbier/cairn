@@ -1,6 +1,6 @@
 import type { Label, Progress, User } from '@cairn/shared';
 import { MoonIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { type ReactNode, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn, initials } from '@/lib/utils';
 
@@ -127,7 +127,8 @@ export function Panel({
   action?: ReactNode;
   children: ReactNode;
 }) {
-  const headingId = `${id ?? title}-heading`;
+  // A generated id: titles contain spaces, which would split `aria-labelledby` into several references.
+  const headingId = `${useId()}-heading`;
   return (
     <section
       id={id}

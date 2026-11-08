@@ -32,20 +32,8 @@ import { useTranslation } from 'react-i18next';
 import { Avatar, ColorSquare } from '@/components/bits';
 import { CairnLogo } from '@/components/icons';
 import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Kbd } from '@/components/ui/kbd';
-import { type Language, setLanguage } from '@/i18n';
 import { useArchivedProjects, useMe, useProjects, useUpdateProject, useUpdateSubproject } from '@/lib/queries';
-import { type ThemeSetting, useTheme } from '@/lib/theme';
 import { useUi } from '@/lib/ui-state';
 import { cn, isMac } from '@/lib/utils';
 
@@ -212,7 +200,17 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             <span className="truncate font-medium">{me.data.user.name.split(' ')[0]}</span>
           </>
         ) : null}
-        <SettingsMenu />
+        <Button variant="ghost" size="icon-sm" className="ml-auto" asChild>
+          <Link
+            to="/parametres"
+            aria-label={t('nav.settings')}
+            title={t('nav.settings')}
+            activeProps={{ className: 'bg-sidebar-accent text-ink', 'aria-current': 'page' }}
+            onClick={onNavigate}
+          >
+            <SlidersHorizontalIcon className="size-4" strokeWidth={1.75} />
+          </Link>
+        </Button>
       </div>
     </nav>
   );
@@ -411,44 +409,5 @@ function ArchivedProjects({ onNavigate }: { onNavigate?: () => void }) {
           ))
         : null}
     </>
-  );
-}
-
-function SettingsMenu() {
-  const { t, i18n } = useTranslation();
-  const { setting, setSetting } = useTheme();
-  const ui = useUi();
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label={t('nav.settings')}>
-          <SlidersHorizontalIcon className="size-4" strokeWidth={1.75} />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" side="top">
-        <DropdownMenuLabel>{t('settings.theme')}</DropdownMenuLabel>
-        <DropdownMenuRadioGroup value={setting} onValueChange={(v) => setSetting(v as ThemeSetting)}>
-          {(['system', 'light', 'dark'] as const).map((value) => (
-            <DropdownMenuRadioItem key={value} value={value}>
-              {t(`settings.themes.${value}`)}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel>{t('settings.language')}</DropdownMenuLabel>
-        <DropdownMenuRadioGroup value={i18n.language} onValueChange={(v) => setLanguage(v as Language)}>
-          {(['fr', 'en'] as const).map((value) => (
-            <DropdownMenuRadioItem key={value} value={value}>
-              {t(`settings.languages.${value}`)}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => ui.setShortcutsOpen(true)}>
-          {t('settings.shortcuts')}
-          <Kbd className="ml-auto">?</Kbd>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }

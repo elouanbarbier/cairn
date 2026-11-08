@@ -11,6 +11,7 @@ import type {
   TopicSummary,
   UpdateChecklistItemInput,
   UpdateProjectInput,
+  UpdateSettingsInput,
   UpdateSubprojectInput,
   UpdateTopicInput,
 } from '@cairn/shared';
@@ -23,6 +24,7 @@ import { todayISO } from './format.ts';
 
 export const queryKeys = {
   setup: ['setup'] as const,
+  settings: ['settings'] as const,
   me: ['me'] as const,
   users: ['users'] as const,
   labels: ['labels'] as const,
@@ -39,6 +41,18 @@ export const queryKeys = {
 export const useSetupStatus = () =>
   useQuery({ queryKey: queryKeys.setup, queryFn: api.setupStatus, staleTime: Number.POSITIVE_INFINITY });
 export const useMe = () => useQuery({ queryKey: queryKeys.me, queryFn: api.me });
+export const useSettings = () => useQuery({ queryKey: queryKeys.settings, queryFn: api.settings });
+
+/** Settings change derived views (the dormancy threshold moves the dormant list and badges). */
+export function useUpdateSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateSettingsInput) => api.updateSettings(input),
+    onSuccess: (settings) => client.setQueryData(queryKeys.settings, settings),
+    onError: () => toast.error(i18n.t('errors.rollback')),
+    onSettled: () => invalidateTopicViews(client),
+  });
+}
 export const useUsers = () => useQuery({ queryKey: queryKeys.users, queryFn: api.users, staleTime: 5 * 60_000 });
 export const useLabels = () => useQuery({ queryKey: queryKeys.labels, queryFn: api.labels, staleTime: 5 * 60_000 });
 export const useProjects = () => useQuery({ queryKey: queryKeys.projects, queryFn: api.projects });

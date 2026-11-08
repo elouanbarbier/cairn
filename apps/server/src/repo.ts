@@ -21,6 +21,7 @@ import {
   type ProjectStatus,
   type ProjectSummary,
   parseTopicRef,
+  type RecentActivity,
   type SearchHit,
   type SearchResult,
   type SearchSegment,
@@ -34,9 +35,11 @@ import {
   type TopicSummary,
   type UpdateChecklistItemInput,
   type UpdateProjectInput,
+  type UpdateSettingsInput,
   type UpdateSubprojectInput,
   type UpdateTopicInput,
   type User,
+  type WorkspaceSettings,
 } from '@cairn/shared';
 import { and, asc, desc, eq, inArray, isNotNull, isNull, max, min, or, type SQL, sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
@@ -677,7 +680,61 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     const active = listProjects().filter((p) => p.status === 'active');
     const activeIds = new Set(active.map((p) => p.id));
     const allTopics = listTopics().filter((t) => activeIds.has(t.projectId));
-    return buildOverview({ topics: allTopics, projects: active, now: now(), today, dormancyDays: dormancyDays() });
+    return {
+      ...buildOverview({ topics: allTopics, projects: active, now: now(), today, dormancyDays: dormancyDays() }),
+      recentActivity: recentActivity([...activeIds]),
+    };
+  }
+
+  /** Latest changes of topics, subprojects and the projects themselves, in the given projects. */
+  function recentActivity(projectIds: string[], limit = 12): RecentActivity[] {
+    if (projectIds.length === 0) return [];
+    const ownerProject = sql`coalesce(${topics.projectId}, ${subprojects.projectId}, case when ${activity.entityType} = 'project' then ${activity.entityId} end)`;
+    return db
+      .select({
+        entry: activity,
+        actor: users,
+        topicNumber: topics.number,
+        topicTitle: topics.title,
+        subprojectName: subprojects.name,
+        project: { id: projects.id, key: projects.key, name: projects.name, color: projects.color },
+      })
+      .from(activity)
+      .leftJoin(topics, and(eq(activity.entityType, 'topic'), eq(activity.entityId, topics.id)))
+      .leftJoin(subprojects, and(eq(activity.entityType, 'subproject'), eq(activity.entityId, subprojects.id)))
+      .innerJoin(projects, sql`${projects.id} = ${ownerProject}`)
+      .leftJoin(users, eq(activity.actorId, users.id))
+      .where(inArray(projects.id, projectIds))
+      .orderBy(...newestActivityFirst)
+      .limit(limit)
+      .all()
+      .map(({ entry, actor, topicNumber, topicTitle, subprojectName, project }) => ({
+        id: entry.id,
+        entityType: entry.entityType,
+        entityId: entry.entityId,
+        actor: actor ? toUser(actor) : null,
+        action: entry.action as ActivityAction,
+        payload: entry.payload,
+        createdAt: iso(entry.createdAt),
+        topicRef: topicNumber === null ? null : formatTopicRef(project.key, topicNumber),
+        topicTitle,
+        subprojectName,
+        project,
+      }));
+  }
+
+  function settings(): WorkspaceSettings {
+    return { dormancyDays: dormancyDays() };
+  }
+
+  function updateSettings(input: UpdateSettingsInput): WorkspaceSettings {
+    if (input.dormancyDays !== undefined) {
+      db.insert(schema.settings)
+        .values({ key: 'dormancy_days', value: input.dormancyDays })
+        .onConflictDoUpdate({ target: schema.settings.key, set: { value: input.dormancyDays } })
+        .run();
+    }
+    return settings();
   }
 
   /**
@@ -1074,6 +1131,8 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     getSubproject,
     updateSubproject,
     overview,
+    settings,
+    updateSettings,
     search,
     me,
     createTopic,

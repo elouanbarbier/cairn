@@ -6,6 +6,7 @@ import { AppShell } from '@/components/layout/app-shell';
 import { MyTopicsPage } from '@/features/my-topics/my-topics-page';
 import { OverviewPage } from '@/features/overview/overview-page';
 import { ProjectPage, SubprojectPage } from '@/features/project/project-page';
+import { SettingsPage } from '@/features/settings/settings-page';
 import { TopicPage } from '@/features/topic/topic-page';
 
 export type ListView = 'list' | 'kanban';
@@ -90,6 +91,13 @@ const myTopicsRoute = createRoute({
   component: MyTopicsPage,
 });
 
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/parametres',
+  validateSearch: (search: Record<string, unknown>): ViewSearch => ({ topic: panelTopic(search) }),
+  component: SettingsPage,
+});
+
 export const projectRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/p/$key',
@@ -110,7 +118,14 @@ export const topicRoute = createRoute({
   component: TopicPage,
 });
 
-const routeTree = rootRoute.addChildren([overviewRoute, myTopicsRoute, projectRoute, subprojectRoute, topicRoute]);
+const routeTree = rootRoute.addChildren([
+  overviewRoute,
+  myTopicsRoute,
+  settingsRoute,
+  projectRoute,
+  subprojectRoute,
+  topicRoute,
+]);
 
 export const router = createRouter({ routeTree, defaultPreload: 'intent', scrollRestoration: true });
 

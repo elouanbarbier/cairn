@@ -1,9 +1,10 @@
-import { diffDays, elapsedDays, type Overview, type TopicSummary } from '@cairn/shared';
+import { diffDays, elapsedDays, type Overview, type RecentActivity, type TopicSummary } from '@cairn/shared';
 import { Link } from '@tanstack/react-router';
 import {
   CalendarIcon,
   ChartNoAxesColumnIcon,
   FolderPlusIcon,
+  HistoryIcon,
   ListFilterIcon,
   MoonIcon,
   SparklesIcon,
@@ -11,6 +12,7 @@ import {
 import { type MouseEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { ActivityItem } from '@/components/activity-item';
 import { ColorSquare, Count, DormantBadge, LoadError, Panel, ProgressBar, TopicRef } from '@/components/bits';
 import { PriorityIcon, StatusIcon } from '@/components/icons';
 import { PageHeader } from '@/components/layout/page-header';
@@ -56,6 +58,7 @@ function filterOverview(overview: Overview, hidden: string[]): Overview {
     dormant: overview.dormant.filter(keep),
     progress: overview.progress.filter((p) => !hidden.includes(p.project.id)),
     completedThisWeek: overview.completedThisWeek.filter(keep),
+    recentActivity: overview.recentActivity.filter((a) => !hidden.includes(a.project.id)),
   };
 }
 
@@ -241,6 +244,37 @@ function TopicLink({ topic, className, children }: { topic: TopicSummary; classN
   );
 }
 
+/** Where a recent change happened: the topic (opens in the panel), or the project. */
+function ActivityTarget({ entry }: { entry: RecentActivity }) {
+  const panel = useTopicPanel();
+  const ref = entry.topicRef;
+  const project = entry.project;
+  return (
+    <>
+      {' · '}
+      {ref ? (
+        <Link
+          to="/p/$key/sujets/$ref"
+          params={{ key: project.key, ref }}
+          onClick={panel.onLinkClick({ projectKey: project.key, ref })}
+          className="text-ink-2 no-underline hover:underline"
+        >
+          <span className="font-mono text-caption">{ref}</span> {entry.topicTitle}
+        </Link>
+      ) : (
+        <Link
+          to="/p/$key"
+          params={{ key: project.key }}
+          className="inline-flex items-center gap-1.5 text-ink-2 no-underline hover:underline"
+        >
+          <ColorSquare color={project.color} />
+          {project.name}
+        </Link>
+      )}
+    </>
+  );
+}
+
 function Title({ children, className }: { children: ReactNode; className?: string }) {
   return <span className={cn('min-w-0 flex-auto truncate', className)}>{children}</span>;
 }
@@ -406,6 +440,20 @@ function OverviewContent({ data, now }: { data: Overview; now: Date }) {
                   </TopicLink>
                 ))}
               </>
+            ) : null}
+          </Panel>
+          <Panel
+            id="activite"
+            title={t('overview.recentActivity')}
+            icon={<HistoryIcon className="size-3.5 text-ink-3" strokeWidth={2} aria-hidden />}
+          >
+            {data.recentActivity.length === 0 ? <Empty>{t('overview.empty.recentActivity')}</Empty> : null}
+            {data.recentActivity.length > 0 ? (
+              <ol className="m-0 flex list-none flex-col gap-2.5 border-line border-t px-4 py-3 text-ink-3 text-small">
+                {data.recentActivity.map((entry) => (
+                  <ActivityItem key={entry.id} entry={entry} withTime suffix={<ActivityTarget entry={entry} />} />
+                ))}
+              </ol>
             ) : null}
           </Panel>
         </div>

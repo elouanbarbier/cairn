@@ -181,6 +181,10 @@ export const projectRefSchema = z.object({
 });
 export type ProjectRef = z.infer<typeof projectRefSchema>;
 
+/** A recent change anywhere in the active projects, for the overview. */
+export const recentActivitySchema = projectActivitySchema.extend({ project: projectRefSchema });
+export type RecentActivity = z.infer<typeof recentActivitySchema>;
+
 export const overviewSchema = z.object({
   today: isoDateSchema,
   dormancyDays: z.number().int(),
@@ -198,6 +202,8 @@ export const overviewSchema = z.object({
     }),
   ),
   completedThisWeek: z.array(topicSummarySchema),
+  /** Latest changes in the active projects, newest first. */
+  recentActivity: z.array(recentActivitySchema),
 });
 export type Overview = z.infer<typeof overviewSchema>;
 
@@ -233,6 +239,15 @@ export const meSchema = z.object({
   dormancyDays: z.number().int(),
 });
 export type Me = z.infer<typeof meSchema>;
+
+/** Workspace settings an admin changes on the settings page. */
+export const workspaceSettingsSchema = z.object({
+  /** An open topic without activity for this many days is dormant. */
+  dormancyDays: z.number().int().min(1).max(365),
+});
+export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>;
+export const updateSettingsInputSchema = workspaceSettingsSchema.partial();
+export type UpdateSettingsInput = z.infer<typeof updateSettingsInputSchema>;
 
 /** Whether the workspace still needs its first account. */
 export const setupStatusSchema = z.object({ required: z.boolean() });

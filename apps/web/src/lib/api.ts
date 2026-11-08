@@ -21,9 +21,11 @@ import type {
   TopicSummary,
   UpdateChecklistItemInput,
   UpdateProjectInput,
+  UpdateSettingsInput,
   UpdateSubprojectInput,
   UpdateTopicInput,
   User,
+  WorkspaceSettings,
 } from '@cairn/shared';
 
 export class ApiRequestError extends Error {
@@ -64,6 +66,9 @@ export const api = {
   setupStatus: () => request<SetupStatus>('/setup'),
   setup: (input: SetupInput) => request<User>('/setup', { method: 'POST', json: input }),
   me: () => request<Me>('/me'),
+  settings: () => request<WorkspaceSettings>('/settings'),
+  updateSettings: (input: UpdateSettingsInput) =>
+    request<WorkspaceSettings>('/settings', { method: 'PATCH', json: input }),
   users: () => request<User[]>('/users'),
   labels: () => request<Label[]>('/labels'),
   overview: (today: string) => request<Overview>(`/overview?today=${today}`),

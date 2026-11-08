@@ -23,6 +23,7 @@ import {
   MinusIcon,
   PlusIcon,
   SearchIcon,
+  SlidersHorizontalIcon,
   SunMoonIcon,
 } from 'lucide-react';
 import { Dialog as DialogPrimitive } from 'radix-ui';
@@ -240,6 +241,12 @@ export function CommandPalette() {
         label: t('palette.goMyTopics'),
         icon: <CircleUserRoundIcon className="size-3.5 text-ink-3" strokeWidth={2} aria-hidden />,
         run: () => void navigate({ to: '/mes-sujets' }),
+      },
+      {
+        id: 'go-settings',
+        label: t('palette.goSettings'),
+        icon: <SlidersHorizontalIcon className="size-3.5 text-ink-3" strokeWidth={2} aria-hidden />,
+        run: () => void navigate({ to: '/parametres' }),
       },
       ...(projects.data ?? []).map((p) => ({
         id: `go-${p.key}`,

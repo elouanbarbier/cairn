@@ -56,6 +56,44 @@ describe('overview', () => {
   });
 });
 
+describe('overview activity and settings', () => {
+  it('lists the latest changes of active projects, newest first', async () => {
+    clock = new Date('2026-11-07T20:00:00');
+    await send('PATCH', '/topics/POR-24', { status: 'waiting' });
+    clock = new Date('2026-11-07T20:05:00');
+    await send('PATCH', '/projects/AIDE', { name: "Centre d'aide usagers" });
+    await send('PATCH', '/projects/OUT', { status: 'paused' });
+    clock = new Date('2026-11-07T20:10:00');
+    await send('PATCH', '/topics/OUT-3', { priority: 'urgent' });
+
+    const { recentActivity } = await get<Overview>('/overview');
+    expect(recentActivity.length).toBeLessThanOrEqual(12);
+    // OUT is paused: its changes stay out of the overview, like its topics.
+    expect(recentActivity.some((a) => a.project.key === 'OUT')).toBe(false);
+    expect(recentActivity.slice(0, 2).map((a) => [a.project.key, a.entityType, a.action, a.topicRef])).toEqual([
+      ['AIDE', 'project', 'renamed', null],
+      ['POR', 'topic', 'status_changed', 'POR-24'],
+    ]);
+  });
+
+  it('changes the dormancy threshold', async () => {
+    expect(await get<{ dormancyDays: number }>('/settings')).toEqual({ dormancyDays: 14 });
+    const before = (await get<Overview>('/overview?today=2026-11-07')).dormant.length;
+    expect(before).toBeGreaterThan(0);
+
+    await send('PATCH', '/settings', { dormancyDays: 365 });
+    const overview = await get<Overview>('/overview?today=2026-11-07');
+    expect(overview.dormancyDays).toBe(365);
+    expect(overview.dormant).toEqual([]);
+    expect((await get<Me>('/me')).dormancyDays).toBe(365);
+
+    await send('PATCH', '/settings', { dormancyDays: 7 });
+    expect((await get<Overview>('/overview?today=2026-11-07')).dormant.length).toBeGreaterThan(before);
+    await send('PATCH', '/settings', { dormancyDays: 0 }, 400);
+    await send('PATCH', '/settings', { dormancyDays: 400 }, 400);
+  });
+});
+
 describe('projects', () => {
   it('computes counters and progress', async () => {
     const project = await get<ProjectSummary>('/projects/POR');

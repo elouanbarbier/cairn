@@ -22,9 +22,11 @@ import {
   topicSummarySchema,
   updateChecklistItemInputSchema,
   updateProjectInputSchema,
+  updateSettingsInputSchema,
   updateSubprojectInputSchema,
   updateTopicInputSchema,
   userSchema,
+  workspaceSettingsSchema,
 } from '@cairn/shared';
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
 import { ConflictError, NotFoundError, type Repo, ValidationError } from './repo.ts';
@@ -79,6 +81,19 @@ const routes = {
     tags: ['Overview'],
     request: { query: z.object({ today: isoDateSchema.optional() }) },
     responses: { 200: json(overviewSchema, 'Home overview'), ...errors },
+  }),
+  settings: createRoute({
+    method: 'get',
+    path: '/settings',
+    tags: ['Settings'],
+    responses: { 200: json(workspaceSettingsSchema, 'Workspace settings') },
+  }),
+  updateSettings: createRoute({
+    method: 'patch',
+    path: '/settings',
+    tags: ['Settings'],
+    request: body(updateSettingsInputSchema),
+    responses: { 200: json(workspaceSettingsSchema, 'Updated settings'), ...errors },
   }),
   projects: createRoute({
     method: 'get',
@@ -233,6 +248,8 @@ export function createApi(repo: Repo) {
   api.openapi(routes.users, (c) => c.json(repo.listUsers(), 200));
   api.openapi(routes.labels, (c) => c.json(repo.listLabels(), 200));
   api.openapi(routes.overview, (c) => c.json(repo.overview(c.req.valid('query').today), 200));
+  api.openapi(routes.settings, (c) => c.json(repo.settings(), 200));
+  api.openapi(routes.updateSettings, (c) => c.json(repo.updateSettings(c.req.valid('json')), 200));
   api.openapi(routes.projects, (c) =>
     c.json(repo.listProjects({ archived: c.req.valid('query').archived === 'true' ? 'only' : 'exclude' }), 200),
   );

@@ -139,7 +139,11 @@ export const activity = sqliteTable(
     payload: text('payload', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
   },
-  (t) => [index('activity_entity_idx').on(t.entityType, t.entityId, t.createdAt)],
+  (t) => [
+    index('activity_entity_idx').on(t.entityType, t.entityId, t.createdAt),
+    // The overview's recent activity reads the newest entries first.
+    index('activity_created_idx').on(t.createdAt),
+  ],
 );
 
 export const apiTokens = sqliteTable('api_tokens', {

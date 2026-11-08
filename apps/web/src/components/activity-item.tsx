@@ -15,7 +15,7 @@ import {
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PriorityIcon, StatusIcon } from '@/components/icons';
-import { formatShortDate } from '@/lib/format';
+import { formatDateTime, formatShortDate } from '@/lib/format';
 
 const iconClass = 'size-3.5 shrink-0 text-ink-4';
 
@@ -147,9 +147,12 @@ function containerLine(
 export function ActivityItem({
   entry,
   suffix,
+  withTime = false,
 }: {
   entry: Activity & { subprojectName?: string | null };
   suffix?: ReactNode;
+  /** Show the time of day (recent activity), not only the date. */
+  withTime?: boolean;
 }) {
   const { t } = useTranslation();
   const p = entry.payload as Payload;
@@ -167,7 +170,9 @@ export function ActivityItem({
         {line.text}
         {suffix}
       </span>
-      <span className="ml-auto shrink-0 text-ink-4">{formatShortDate(entry.createdAt)}</span>
+      <span className="ml-auto shrink-0 whitespace-nowrap text-ink-4">
+        {withTime ? formatDateTime(entry.createdAt) : formatShortDate(entry.createdAt)}
+      </span>
     </li>
   );
 }

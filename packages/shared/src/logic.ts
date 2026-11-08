@@ -74,14 +74,14 @@ export interface OverviewInput {
   dormancyDays: number;
 }
 
-/** Builds the overview: what moves, what is stuck, what is due, what sleeps. */
+/** Builds the overview: what moves, what is stuck, what is due, what sleeps. Recent activity comes from the log. */
 export function buildOverview({
   topics,
   projects,
   now,
   today = toISODate(now),
   dormancyDays,
-}: OverviewInput): Overview {
+}: OverviewInput): Omit<Overview, 'recentActivity'> {
   const toRef = (p: ProjectSummary): ProjectRef => ({ id: p.id, key: p.key, name: p.name, color: p.color });
   const upcomingLimit = addDays(today, UPCOMING_WINDOW_DAYS);
   const completedSince = now.getTime() - COMPLETED_WINDOW_DAYS * 86_400_000;
