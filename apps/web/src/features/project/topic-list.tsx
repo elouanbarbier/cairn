@@ -8,15 +8,16 @@ import {
   type TopicStatus,
   type TopicSummary,
 } from '@cairn/shared';
-import { Link, useNavigate } from '@tanstack/react-router';
+import { Link } from '@tanstack/react-router';
 import { ChevronDownIcon, ChevronRightIcon, PlusIcon } from 'lucide-react';
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Avatar, Count, DormantBadge, EmptyState, LabelChip, ProgressBar, TopicRef } from '@/components/bits';
 import { PriorityIcon, StatusIcon } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import { formatShortDate, todayISO } from '@/lib/format';
 import { useHotkeys } from '@/lib/hotkeys';
+import { useTopicPanel } from '@/lib/topic-panel';
 import { type CreateContext, useUi } from '@/lib/ui-state';
 import { cn } from '@/lib/utils';
 import type { GroupBy } from '@/router';
@@ -44,6 +45,7 @@ function buildGroups(
   project: ProjectSummary | undefined,
   noSubprojectLabel: string,
   statusLabel: (s: TopicStatus) => string,
+  archivedLabel: (name: string) => string,
 ): Group[] {
   if (group === 'status' || !project) {
     return LIST_STATUS_ORDER.map((status) => ({
@@ -63,6 +65,19 @@ function buildGroups(
     all: all.filter((t) => t.subprojectId === sub.id),
     createContext: { subprojectId: sub.id },
   }));
+  // Topics of archived subprojects stay visible, under their subproject's name.
+  for (const sub of project.archivedSubprojects) {
+    const inSub = all.filter((t) => t.subprojectId === sub.id);
+    if (inSub.length === 0) continue;
+    groups.push({
+      key: sub.id,
+      title: archivedLabel(sub.name),
+      link: { key: project.key, subprojectId: sub.id },
+      topics: visible.filter((t) => t.subprojectId === sub.id).sort(byListOrder),
+      all: inSub,
+      createContext: { subprojectId: null },
+    });
+  }
   groups.push({
     key: 'none',
     title: noSubprojectLabel,
@@ -70,7 +85,10 @@ function buildGroups(
     all: all.filter((t) => t.subprojectId === null),
     createContext: { subprojectId: null },
   });
-  return groups.filter((g) => g.topics.length > 0 || (g.key !== 'none' && g.all.length === 0));
+  const archivedIds = new Set(project.archivedSubprojects.map((s) => s.id));
+  return groups.filter(
+    (g) => g.topics.length > 0 || (g.key !== 'none' && !archivedIds.has(g.key) && g.all.length === 0),
+  );
 }
 
 /**
@@ -101,7 +119,7 @@ export function TopicList({
 }) {
   const { t } = useTranslation();
   const ui = useUi();
-  const navigate = useNavigate();
+  const panel = useTopicPanel();
   const [collapsed, setCollapsed] = useState<string[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -109,7 +127,16 @@ export function TopicList({
   const today = todayISO();
 
   const groups = useMemo(
-    () => buildGroups(topics, allTopics, group, project, t('views.noSubproject'), (s) => t(`status.${s}`)),
+    () =>
+      buildGroups(
+        topics,
+        allTopics,
+        group,
+        project,
+        t('views.noSubproject'),
+        (s) => t(`status.${s}`),
+        (name) => t('views.archivedGroup', { name }),
+      ),
     [topics, allTopics, group, project, t],
   );
   const flat = groups.filter((g) => !collapsed.includes(g.key)).flatMap((g) => g.topics);
@@ -120,10 +147,19 @@ export function TopicList({
     listRef.current?.querySelector(`[data-topic-id="${activeId}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [activeId]);
 
+  // With the panel open, moving through the list follows along in the panel.
+  // The topic open in the panel is the highlighted one, so J/K continue from it.
+  useEffect(() => {
+    const shown = panel.current ? allTopics.find((x) => x.ref === panel.current) : undefined;
+    if (shown) setActiveId(shown.id);
+  }, [panel.current, allTopics]);
+
   const move = (delta: number) => {
     const index = flat.findIndex((t) => t.id === activeId);
     const next = flat[Math.max(0, Math.min(flat.length - 1, index === -1 ? 0 : index + delta))];
-    if (next) setActiveId(next.id);
+    if (!next) return;
+    setActiveId(next.id);
+    if (panel.current && panel.current !== next.ref) panel.open(next);
   };
 
   useHotkeys({
@@ -135,14 +171,15 @@ export function TopicList({
       // Let focused links and buttons elsewhere handle their own Enter.
       const target = event.target as Node;
       if (!active || (target !== document.body && !listRef.current?.contains(target))) return false;
-      void navigate({ to: '/p/$key/sujets/$ref', params: { key: active.projectKey, ref: active.ref } });
+      panel.open(active);
     },
+    // With the panel open, S and P belong to the topic it shows.
     s: () => {
-      if (!active) return false;
+      if (!active || panel.current) return false;
       ui.openPalette({ kind: 'status', ref: active.ref });
     },
     p: () => {
-      if (!active) return false;
+      if (!active || panel.current) return false;
       ui.openPalette({ kind: 'priority', ref: active.ref });
     },
   });
@@ -209,6 +246,7 @@ export function TopicList({
                     key={topic.id}
                     topic={topic}
                     active={topic.id === activeId}
+                    onClick={panel.onLinkClick(topic)}
                     onHover={() => setActiveId(topic.id)}
                     dormant={isDormant(topic, now, dormancyDays)}
                     now={now}
@@ -226,6 +264,7 @@ export function TopicList({
 function TopicRow({
   topic,
   active,
+  onClick,
   onHover,
   dormant,
   now,
@@ -234,6 +273,7 @@ function TopicRow({
 }: {
   topic: TopicSummary;
   active: boolean;
+  onClick: (event: MouseEvent) => void;
   onHover: () => void;
   dormant: boolean;
   now: Date;
@@ -249,6 +289,7 @@ function TopicRow({
       to="/p/$key/sujets/$ref"
       params={{ key: topic.projectKey, ref: topic.ref }}
       data-topic-id={topic.id}
+      onClick={onClick}
       onMouseEnter={onHover}
       onFocus={onHover}
       className={cn(

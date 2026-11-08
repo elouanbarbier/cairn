@@ -23,6 +23,12 @@ interface UiState {
   closeCreate: () => void;
   shortcutsOpen: boolean;
   setShortcutsOpen: (open: boolean) => void;
+  /** New project dialog (Shift+P). */
+  projectDialogOpen: boolean;
+  setProjectDialogOpen: (open: boolean) => void;
+  /** New subproject dialog, for the project with this key. */
+  subprojectDialogFor: string | null;
+  setSubprojectDialogFor: (projectKey: string | null) => void;
   /** Sidebar drawer on small screens. */
   navOpen: boolean;
   setNavOpen: (open: boolean) => void;
@@ -39,6 +45,8 @@ export function UiProvider({ children }: { children: ReactNode }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [createContext, setCreateContext] = useState<CreateContext>({});
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  const [subprojectDialogFor, setSubprojectDialogFor] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
   const [screenContext, setScreenContext] = useState<UiState['screenContext']>({});
 
@@ -61,12 +69,26 @@ export function UiProvider({ children }: { children: ReactNode }) {
       closeCreate: () => setCreateOpen(false),
       shortcutsOpen,
       setShortcutsOpen,
+      projectDialogOpen,
+      setProjectDialogOpen,
+      subprojectDialogFor,
+      setSubprojectDialogFor,
       navOpen,
       setNavOpen,
       screenContext,
       setScreenContext,
     }),
-    [paletteOpen, palettePage, createOpen, createContext, shortcutsOpen, navOpen, screenContext],
+    [
+      paletteOpen,
+      palettePage,
+      createOpen,
+      createContext,
+      shortcutsOpen,
+      projectDialogOpen,
+      subprojectDialogFor,
+      navOpen,
+      screenContext,
+    ],
   );
 
   return <UiContext.Provider value={value}>{children}</UiContext.Provider>;

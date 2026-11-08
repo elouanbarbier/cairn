@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { addDays, diffDays } from './dates.ts';
-import { buildOverview, computeProgress, isDormant, parseTopicRef } from './logic.ts';
+import {
+  buildOverview,
+  computeProgress,
+  isDormant,
+  nextProjectColor,
+  parseTopicRef,
+  suggestProjectKey,
+} from './logic.ts';
 import type { ProjectSummary, TopicSummary } from './schemas.ts';
 
 const now = new Date('2026-11-07T18:00:00');
@@ -18,9 +25,11 @@ const project: ProjectSummary = {
   startDate: null,
   targetDate: null,
   sortOrder: 'V',
+  archivedAt: null,
   openCount: 0,
   progress: { done: 1, total: 3 },
   subprojects: [],
+  archivedSubprojects: [],
 };
 
 let counter = 0;
@@ -125,5 +134,34 @@ describe('buildOverview', () => {
 
   it('keeps topics completed in the last 7 days', () => {
     expect(overview.completedThisWeek).toHaveLength(1);
+  });
+});
+
+describe('suggestProjectKey', () => {
+  it('uses initials for several words and skips short linking words', () => {
+    expect(suggestProjectKey('Portail client')).toBe('PC');
+    expect(suggestProjectKey("Centre d'aide")).toBe('CA');
+    expect(suggestProjectKey('Veille et outillage')).toBe('VO');
+  });
+
+  it('uses the first letters of a single word, without accents', () => {
+    expect(suggestProjectKey('Cairn')).toBe('CAI');
+    expect(suggestProjectKey('Équipe')).toBe('EQU');
+  });
+
+  it('falls back to longer keys when a key is taken', () => {
+    expect(suggestProjectKey('Portail client', ['PC'])).toBe('POR');
+    expect(suggestProjectKey('Cairn', ['CAI', 'CAIR', 'CAIRN', 'CA'])).toBe('CAIRA');
+  });
+
+  it('returns an empty key when the name has no letters', () => {
+    expect(suggestProjectKey('2027 ')).toBe('');
+  });
+});
+
+describe('nextProjectColor', () => {
+  it('picks the first unused palette color', () => {
+    expect(nextProjectColor([])).toBe('#6366F1');
+    expect(nextProjectColor(['#6366f1'])).toBe('#0D9488');
   });
 });

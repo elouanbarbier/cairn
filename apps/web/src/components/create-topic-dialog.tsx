@@ -1,5 +1,4 @@
 import { TOPIC_PRIORITIES, TOPIC_STATUSES, type TopicPriority, type TopicStatus } from '@cairn/shared';
-import { useNavigate } from '@tanstack/react-router';
 import { type FormEvent, useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -7,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { Input, NativeSelect } from '@/components/ui/input';
 import { Kbd } from '@/components/ui/kbd';
 import { useCreateTopic, useProjects } from '@/lib/queries';
+import { useTopicPanel } from '@/lib/topic-panel';
 import { useUi } from '@/lib/ui-state';
 import { isMac } from '@/lib/utils';
 
@@ -14,7 +14,7 @@ import { isMac } from '@/lib/utils';
 export function CreateTopicDialog() {
   const { t } = useTranslation();
   const ui = useUi();
-  const navigate = useNavigate();
+  const panel = useTopicPanel();
   const projects = useProjects();
   const create = useCreateTopic();
   const id = useId();
@@ -47,7 +47,7 @@ export function CreateTopicDialog() {
       {
         onSuccess: (topic) => {
           ui.closeCreate();
-          void navigate({ to: '/p/$key/sujets/$ref', params: { key: topic.projectKey, ref: topic.ref } });
+          panel.open(topic);
         },
       },
     );

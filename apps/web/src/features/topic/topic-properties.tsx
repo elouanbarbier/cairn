@@ -10,10 +10,11 @@ import {
   type User,
 } from '@cairn/shared';
 import { Link } from '@tanstack/react-router';
-import { CalendarIcon, PlusIcon, UserRoundIcon, XIcon } from 'lucide-react';
-import { type ReactNode, useEffect, useState } from 'react';
+import { CalendarIcon, PlusIcon, UserRoundIcon } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Avatar, ColorSquare, LabelChip } from '@/components/bits';
+import { DatePopover } from '@/components/editors';
 import { PriorityIcon, StatusIcon } from '@/components/icons';
 import {
   DropdownMenu,
@@ -23,7 +24,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Kbd } from '@/components/ui/kbd';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { formatDateTime, formatFullDate, formatRelativeDay, formatWeekdayDate, todayISO } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -46,67 +46,6 @@ function Row({
       <span className={cn('w-24 shrink-0 text-ink-4', align === 'start' && 'leading-[26px]')}>{label}</span>
       <div className="min-w-0">{children}</div>
     </div>
-  );
-}
-
-const isValidDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number(value.slice(0, 4)) >= 2000;
-
-/** Date picker that commits when it closes or on Enter, not on every keystroke. */
-function DueDatePopover({
-  value,
-  open,
-  onOpenChange,
-  onCommit,
-  children,
-}: {
-  value: string | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onCommit: (value: string | null) => void;
-  children: ReactNode;
-}) {
-  const { t } = useTranslation();
-  const [draft, setDraft] = useState(value ?? '');
-  useEffect(() => {
-    if (open) setDraft(value ?? '');
-  }, [open, value]);
-
-  const close = () => {
-    if (draft !== (value ?? '') && isValidDate(draft)) onCommit(draft);
-    onOpenChange(false);
-  };
-
-  return (
-    <Popover open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
-      <PopoverTrigger className={valueButton}>{children}</PopoverTrigger>
-      <PopoverContent className="flex items-center gap-2">
-        <input
-          type="date"
-          aria-label={t('topic.props.due')}
-          value={draft}
-          // biome-ignore lint/a11y/noAutofocus: the popover exists to edit this field
-          autoFocus
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') close();
-          }}
-          className="h-8 rounded-md border border-input bg-background px-2 text-ink text-sm [color-scheme:light] dark:[color-scheme:dark]"
-        />
-        {value ? (
-          <button
-            type="button"
-            onClick={() => {
-              onCommit(null);
-              onOpenChange(false);
-            }}
-            aria-label={t('topic.clearDue')}
-            className="grid size-8 place-items-center rounded-md border border-border bg-background text-ink-3 hover:bg-accent"
-          >
-            <XIcon className="size-3.5" aria-hidden />
-          </button>
-        ) : null}
-      </PopoverContent>
-    </Popover>
   );
 }
 
@@ -178,11 +117,14 @@ export function TopicProperties({
         </Row>
 
         <Row label={t('topic.props.due')}>
-          <DueDatePopover
+          <DatePopover
             value={topic.dueDate}
             open={open === 'due'}
             onOpenChange={(value) => setOpen(value ? 'due' : null)}
             onCommit={(dueDate) => onChange({ dueDate })}
+            label={t('topic.props.due')}
+            clearLabel={t('topic.clearDue')}
+            triggerClassName={valueButton}
           >
             <CalendarIcon className={cn('size-3.5', late ? 'text-danger' : 'text-ink-3')} strokeWidth={2} aria-hidden />
             {topic.dueDate ? (
@@ -197,7 +139,7 @@ export function TopicProperties({
             ) : (
               <span className="font-normal text-ink-4">{t('topic.noDue')}</span>
             )}
-          </DueDatePopover>
+          </DatePopover>
         </Row>
 
         <Row label={t('topic.props.assignee')}>

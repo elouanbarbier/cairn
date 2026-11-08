@@ -4,7 +4,7 @@ Self-hosted project management for people who run several projects split into su
 One container, one SQLite file, comfortable on a Raspberry Pi 4. Open the app and see in five seconds what moves,
 what is stuck, what is due and what sleeps.
 
-> Status: early development (milestones J0–J1). Not ready for production use yet.
+> Status: early development (milestones J0–J1). Not ready for production use yet: there is no sign-in before J4.
 
 ## Develop
 
@@ -22,7 +22,11 @@ pnpm test        # unit and API tests
 pnpm typecheck
 pnpm lint
 pnpm db:seed     # reset the demo data
+pnpm test:e2e    # Playwright journeys (run `pnpm exec playwright install chromium` once)
 ```
+
+A new install with an empty database (`CAIRN_SEED_DEMO=false`, the default in production) opens on a setup screen
+that creates the first account.
 
 ## Stack
 

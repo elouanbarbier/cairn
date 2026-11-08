@@ -11,14 +11,17 @@
     "build": "pnpm -r build",
     "start": "pnpm --filter @cairn/server start",
     "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm -r typecheck && tsc -p e2e",
     "lint": "biome check .",
     "format": "biome check --write .",
     "db:generate": "pnpm --filter @cairn/server db:generate",
-    "db:seed": "pnpm --filter @cairn/server db:seed"
+    "db:seed": "pnpm --filter @cairn/server db:seed",
+    "test:e2e": "pnpm --filter @cairn/web build && playwright test"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.6",
+    "@playwright/test": "^1.65.0",
+    "@types/node": "^26.6.6",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
   }

@@ -1,4 +1,15 @@
-import type { Me, Overview, ProjectSummary, SearchResult, TopicDetail, TopicSummary } from '@cairn/shared';
+import type {
+  Me,
+  Overview,
+  ProjectActivity,
+  ProjectSummary,
+  SearchResult,
+  SetupStatus,
+  SubprojectSummary,
+  TopicDetail,
+  TopicSummary,
+  User,
+} from '@cairn/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApi } from './app.ts';
 import { openDatabase } from './db/index.ts';
@@ -153,5 +164,121 @@ describe('openapi', () => {
   it('documents the API', async () => {
     const doc = await get<{ paths: Record<string, unknown> }>('/openapi.json');
     expect(Object.keys(doc.paths)).toContain('/topics/{ref}');
+  });
+});
+
+describe('first run', () => {
+  it('creates the first admin once, then lets the workspace grow from nothing', async () => {
+    const { db } = openDatabase(':memory:');
+    api = createApi(createRepo(db, { now: () => clock }));
+
+    expect(await get<SetupStatus>('/setup')).toEqual({ required: true });
+    expect((await api.request('/me')).status).toBe(404);
+    await send('POST', '/setup', { name: 'Ada', email: 'not-an-email' }, 400);
+
+    const admin = await send<User>('POST', '/setup', { name: ' Ada Lovelace ', email: 'Ada@Example.com' }, 201);
+    expect(admin).toMatchObject({ name: 'Ada Lovelace', email: 'ada@example.com', role: 'admin' });
+    expect(await get<SetupStatus>('/setup')).toEqual({ required: false });
+    await send('POST', '/setup', { name: 'Eve', email: 'eve@example.com' }, 409);
+
+    const project = await send<ProjectSummary>('POST', '/projects', { key: 'crm', name: 'CRM' }, 201);
+    const sub = await send<SubprojectSummary>('POST', '/projects/CRM/subprojects', { name: 'Import' }, 201);
+    const topic = await send<TopicDetail>(
+      'POST',
+      '/topics',
+      { projectId: project.id, subprojectId: sub.id, title: 'Mapper les colonnes' },
+      201,
+    );
+    expect(topic.ref).toBe('CRM-1');
+    expect(topic.assignee?.id).toBe(admin.id);
+    await send('PATCH', '/topics/CRM-1', { status: 'in_progress' });
+
+    const overview = await get<Overview>('/overview');
+    expect(overview.inProgress.map((g) => [g.project.key, g.topics.map((t) => t.ref)])).toEqual([['CRM', ['CRM-1']]]);
+  });
+});
+
+describe('project writes', () => {
+  it('creates a project with an uppercased key, the next free color and the last position', async () => {
+    const created = await send<ProjectSummary>('POST', '/projects', { key: ' crm ', name: 'Relation client' }, 201);
+    expect(created).toMatchObject({ key: 'CRM', name: 'Relation client', color: '#E11D48', status: 'active' });
+    expect(created).toMatchObject({ archivedAt: null, subprojects: [], openCount: 0 });
+    const keys = (await get<ProjectSummary[]>('/projects')).map((p) => p.key);
+    expect(keys.at(-1)).toBe('CRM');
+  });
+
+  it('refuses a key that is taken or malformed', async () => {
+    await send('POST', '/projects', { key: 'POR', name: 'Doublon' }, 409);
+    await send('POST', '/projects', { key: 'P', name: 'Trop court' }, 400);
+    await send('POST', '/projects', { key: 'PORTAIL', name: 'Trop long' }, 400);
+    await send('POST', '/projects', { key: 'P0R', name: 'Chiffre' }, 400);
+  });
+
+  it('edits a project and logs what changed', async () => {
+    clock = new Date('2026-11-07T20:00:00');
+    const updated = await send<ProjectSummary>('PATCH', '/projects/por', {
+      name: 'Portail clients',
+      targetDate: '2027-01-15',
+      color: '#0284C7',
+      description: 'Notes du projet',
+    });
+    expect(updated).toMatchObject({ name: 'Portail clients', targetDate: '2027-01-15', color: '#0284C7' });
+    expect(updated.description).toBe('Notes du projet');
+
+    const history = await get<ProjectActivity[]>('/projects/POR/activity');
+    const own = history.filter((a) => a.entityType === 'project').map((a) => a.action);
+    expect(own).toEqual(expect.arrayContaining(['renamed', 'target_date_changed', 'description_changed']));
+    expect(history[0]?.createdAt).toBe(clock.toISOString());
+  });
+
+  it('archives and restores a project', async () => {
+    const archived = await send<ProjectSummary>('PATCH', '/projects/OUT', { status: 'archived' });
+    expect(archived.status).toBe('archived');
+    expect(archived.archivedAt).not.toBeNull();
+
+    expect((await get<ProjectSummary[]>('/projects')).map((p) => p.key)).not.toContain('OUT');
+    expect((await get<ProjectSummary[]>('/projects?archived=true')).map((p) => p.key)).toEqual(['OUT']);
+    expect((await get<Overview>('/overview')).activeProjectCount).toBe(2);
+    // The archived project stays readable, topics included.
+    expect((await get<TopicSummary[]>('/topics?project=OUT')).length).toBeGreaterThan(0);
+    expect((await get<TopicSummary[]>('/topics')).some((t) => t.projectKey === 'OUT')).toBe(false);
+
+    const restored = await send<ProjectSummary>('PATCH', '/projects/OUT', { status: 'paused' });
+    expect(restored).toMatchObject({ status: 'paused', archivedAt: null });
+    const actions = (await get<ProjectActivity[]>('/projects/OUT/activity'))
+      .filter((a) => a.entityType === 'project')
+      .map((a) => a.action);
+    expect(actions.slice(0, 2)).toEqual(['restored', 'archived']);
+  });
+});
+
+describe('subproject writes', () => {
+  it('creates, renames and archives a subproject', async () => {
+    const created = await send<SubprojectSummary>('POST', '/projects/POR/subprojects', { name: 'Accessibilité' }, 201);
+    expect(created).toMatchObject({ name: 'Accessibilité', status: 'active', archivedAt: null, openCount: 0 });
+    let project = await get<ProjectSummary>('/projects/POR');
+    expect(project.subprojects.at(-1)?.id).toBe(created.id);
+
+    await send('PATCH', `/subprojects/${created.id}`, { name: 'Accessibilité AA', targetDate: '2027-02-01' });
+    const archived = await send<SubprojectSummary>('PATCH', `/subprojects/${created.id}`, { status: 'archived' });
+    expect(archived.archivedAt).not.toBeNull();
+
+    project = await get<ProjectSummary>('/projects/POR');
+    expect(project.subprojects.map((s) => s.id)).not.toContain(created.id);
+    expect(project.archivedSubprojects.map((s) => s.name)).toEqual(['Accessibilité AA']);
+
+    await send('POST', '/topics', { projectId: project.id, subprojectId: created.id, title: 'Contraste' }, 400);
+    await send('PATCH', '/topics/POR-24', { subprojectId: created.id }, 400);
+
+    const history = await get<ProjectActivity[]>('/projects/POR/activity');
+    const subLines = history.filter((a) => a.entityType === 'subproject');
+    expect(subLines.map((a) => a.action)).toEqual(['archived', 'target_date_changed', 'renamed', 'created']);
+    expect(subLines.every((a) => a.subprojectName === 'Accessibilité AA')).toBe(true);
+  });
+
+  it('returns 404 for an unknown project or subproject', async () => {
+    await send('POST', '/projects/NOPE/subprojects', { name: 'X' }, 404);
+    await send('PATCH', '/subprojects/unknown', { name: 'X' }, 404);
+    await send('PATCH', '/projects/NOPE', { name: 'X' }, 404);
   });
 });

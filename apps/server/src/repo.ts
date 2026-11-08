@@ -5,6 +5,8 @@ import {
   type ChecklistItem,
   type CreateChecklistItemInput,
   type CreateNoteInput,
+  type CreateProjectInput,
+  type CreateSubprojectInput,
   type CreateTopicInput,
   computeProgress,
   DEFAULT_DORMANCY_DAYS,
@@ -12,10 +14,15 @@ import {
   isClosed,
   type Label,
   type Me,
+  nextProjectColor,
   type Overview,
+  type ProjectActivity,
+  type ProjectStatus,
   type ProjectSummary,
   parseTopicRef,
   type SearchResult,
+  type SetupInput,
+  type SetupStatus,
   type SubprojectSummary,
   sortKeyBetween,
   type TopicDetail,
@@ -23,16 +30,23 @@ import {
   type TopicStatus,
   type TopicSummary,
   type UpdateChecklistItemInput,
+  type UpdateProjectInput,
+  type UpdateSubprojectInput,
   type UpdateTopicInput,
   type User,
 } from '@cairn/shared';
-import { and, asc, desc, eq, inArray, isNull, max, min, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, max, min, or, type SQL, sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import type { Db } from './db/index.ts';
 import * as schema from './db/schema.ts';
 
 export class NotFoundError extends Error {}
 export class ValidationError extends Error {}
+/** The request clashes with existing data (a key already used, a workspace already set up). */
+export class ConflictError extends Error {}
+
+type EntityType = 'project' | 'subproject' | 'topic';
+type ArchivedFilter = 'exclude' | 'only' | 'include';
 
 const { activity, checklistItems, labels, projects, subprojects, topicLabels, topicNotes, topics, users } = schema;
 
@@ -47,6 +61,9 @@ const SEARCH_STATUS_RANK: Record<TopicStatus, number> = {
   cancelled: 7,
 };
 const isoOrNull = (date: Date | null) => (date ? date.toISOString() : null);
+
+/** Newest first; entries written in the same millisecond keep their insertion order. */
+const newestActivityFirst = [desc(schema.activity.createdAt), desc(sql`${schema.activity}.rowid`)];
 
 /** Splits large `IN (...)` lists to stay under SQLite's variable limit. */
 function chunk<T>(items: readonly T[], size = 500): T[][] {
@@ -92,6 +109,23 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
 
   function listUsers(): User[] {
     return db.select().from(users).orderBy(asc(users.name)).all().map(toUser);
+  }
+
+  function setupStatus(): SetupStatus {
+    return { required: !db.select({ id: users.id }).from(users).get() };
+  }
+
+  /** First run: creates the first account as admin. Refused once any account exists. */
+  function setup(input: SetupInput): User {
+    const at = now();
+    return db.transaction((tx) => {
+      if (tx.select({ id: users.id }).from(users).get()) throw new ConflictError('The workspace is already set up');
+      const user = { id: ulid(at.getTime()), name: input.name, email: input.email, role: 'admin' as const };
+      tx.insert(users)
+        .values({ ...user, createdAt: at })
+        .run();
+      return user;
+    });
   }
 
   function dormancyDays(): number {
@@ -210,8 +244,10 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     }));
   }
 
+  /** Topics of projects in use; asking for one project also lists an archived one's topics. */
   function listTopics(filter: { projectId?: string; subprojectId?: string; assigneeId?: string } = {}): TopicSummary[] {
-    const conditions: SQL[] = [isNull(projects.archivedAt)];
+    const conditions: SQL[] = [];
+    if (!filter.projectId) conditions.push(isNull(projects.archivedAt));
     if (filter.projectId) conditions.push(eq(topics.projectId, filter.projectId));
     if (filter.subprojectId) conditions.push(eq(topics.subprojectId, filter.subprojectId));
     if (filter.assigneeId) conditions.push(eq(topics.assigneeId, filter.assigneeId));
@@ -262,7 +298,7 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
       .from(activity)
       .leftJoin(users, eq(activity.actorId, users.id))
       .where(and(eq(activity.entityType, 'topic'), eq(activity.entityId, topicId)))
-      .orderBy(desc(activity.createdAt))
+      .orderBy(...newestActivityFirst)
       .all()
       .map(({ entry, actor }) => ({
         id: entry.id,
@@ -286,19 +322,21 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
 
   /* ---------- Projects ---------- */
 
-  function listProjects(options: { includeArchived?: boolean } = {}): ProjectSummary[] {
+  function listProjects(options: { archived?: ArchivedFilter } = {}): ProjectSummary[] {
+    const archived = options.archived ?? 'exclude';
     const projectRows = db
       .select()
       .from(projects)
-      .where(options.includeArchived ? undefined : isNull(projects.archivedAt))
+      .where(
+        archived === 'include'
+          ? undefined
+          : archived === 'only'
+            ? isNotNull(projects.archivedAt)
+            : isNull(projects.archivedAt),
+      )
       .orderBy(asc(projects.sortOrder))
       .all();
-    const subprojectRows = db
-      .select()
-      .from(subprojects)
-      .where(isNull(subprojects.archivedAt))
-      .orderBy(asc(subprojects.sortOrder))
-      .all();
+    const subprojectRows = db.select().from(subprojects).orderBy(asc(subprojects.sortOrder)).all();
     const counts = db
       .select({
         projectId: topics.projectId,
@@ -327,6 +365,7 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
             status: s.status,
             targetDate: s.targetDate,
             sortOrder: s.sortOrder,
+            archivedAt: isoOrNull(s.archivedAt),
             openCount: statuses.filter((st) => !isClosed(st)).length,
             progress: computeProgress(statuses),
           };
@@ -342,31 +381,43 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
         startDate: p.startDate,
         targetDate: p.targetDate,
         sortOrder: p.sortOrder,
+        archivedAt: isoOrNull(p.archivedAt),
         openCount: projectStatuses.filter((st) => !isClosed(st)).length,
         progress: computeProgress(projectStatuses),
-        subprojects: subs,
+        subprojects: subs.filter((s) => s.archivedAt === null),
+        archivedSubprojects: subs.filter((s) => s.archivedAt !== null),
       };
     });
   }
 
   function getProject(key: string): ProjectSummary {
-    const project = listProjects({ includeArchived: true }).find((p) => p.key === key.toUpperCase());
+    const project = listProjects({ archived: 'include' }).find((p) => p.key === key.toUpperCase());
     if (!project) throw new NotFoundError(`Project ${key} not found`);
     return project;
   }
 
-  function listProjectActivity(
-    key: string,
-    limit = 50,
-  ): Array<Activity & { topicRef: string | null; topicTitle: string | null }> {
+  /** The project's own changes, its subprojects' and its topics', newest first. */
+  function listProjectActivity(key: string, limit = 50): ProjectActivity[] {
     const project = getProject(key);
+    const subprojectNames = new Map(
+      [...project.subprojects, ...project.archivedSubprojects].map((s) => [s.id, s.name] as const),
+    );
+    const subprojectIds = [...subprojectNames.keys()];
     return db
       .select({ entry: activity, actor: users, topicNumber: topics.number, topicTitle: topics.title })
       .from(activity)
-      .innerJoin(topics, and(eq(activity.entityType, 'topic'), eq(activity.entityId, topics.id)))
+      .leftJoin(topics, and(eq(activity.entityType, 'topic'), eq(activity.entityId, topics.id)))
       .leftJoin(users, eq(activity.actorId, users.id))
-      .where(eq(topics.projectId, project.id))
-      .orderBy(desc(activity.createdAt))
+      .where(
+        or(
+          eq(topics.projectId, project.id),
+          and(eq(activity.entityType, 'project'), eq(activity.entityId, project.id)),
+          subprojectIds.length > 0
+            ? and(eq(activity.entityType, 'subproject'), inArray(activity.entityId, subprojectIds))
+            : undefined,
+        ),
+      )
+      .orderBy(...newestActivityFirst)
       .limit(limit)
       .all()
       .map(({ entry, actor, topicNumber, topicTitle }) => ({
@@ -377,9 +428,203 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
         action: entry.action as ActivityAction,
         payload: entry.payload,
         createdAt: iso(entry.createdAt),
-        topicRef: formatTopicRef(project.key, topicNumber),
+        topicRef: topicNumber === null ? null : formatTopicRef(project.key, topicNumber),
         topicTitle,
+        subprojectName: entry.entityType === 'subproject' ? (subprojectNames.get(entry.entityId) ?? null) : null,
       }));
+  }
+
+  /* ---------- Projects and subprojects: writing ---------- */
+
+  function findProjectRow(key: string) {
+    const row = db.select().from(projects).where(eq(projects.key, key.trim().toUpperCase())).get();
+    if (!row) throw new NotFoundError(`Project ${key} not found`);
+    return row;
+  }
+
+  /**
+   * Shared by projects and subprojects: name, description, target date and status changes, where `archived`
+   * archives and any other status restores.
+   */
+  function containerPatch(
+    current: {
+      name: string;
+      description: string;
+      status: ProjectStatus;
+      targetDate: string | null;
+      archivedAt: Date | null;
+    },
+    input: { name?: string; description?: string; status?: ProjectStatus; targetDate?: string | null },
+    at: Date,
+  ) {
+    const patch: {
+      name?: string;
+      description?: string;
+      status?: ProjectStatus;
+      targetDate?: string | null;
+      archivedAt?: Date | null;
+      updatedAt?: Date;
+    } = {};
+    const changes: Array<[ActivityAction, Record<string, unknown>]> = [];
+
+    if (input.name !== undefined && input.name !== current.name) {
+      patch.name = input.name;
+      changes.push(['renamed', { from: current.name, to: input.name }]);
+    }
+    if (input.description !== undefined && input.description !== current.description) {
+      patch.description = input.description;
+      changes.push(['description_changed', {}]);
+    }
+    if (input.targetDate !== undefined && input.targetDate !== current.targetDate) {
+      patch.targetDate = input.targetDate;
+      changes.push(['target_date_changed', { from: current.targetDate, to: input.targetDate }]);
+    }
+    if (input.status !== undefined) {
+      const archive = input.status === 'archived';
+      if (archive && current.archivedAt === null) {
+        patch.status = 'archived';
+        patch.archivedAt = at;
+        changes.push(['archived', {}]);
+      } else if (!archive && current.archivedAt !== null) {
+        patch.status = input.status;
+        patch.archivedAt = null;
+        changes.push(['restored', { to: input.status }]);
+      } else if (input.status !== current.status) {
+        patch.status = input.status;
+        changes.push(['status_changed', { from: current.status, to: input.status }]);
+      }
+    }
+    return { patch, changes };
+  }
+
+  function createProject(input: CreateProjectInput, actorId: string | null = currentUser().id): ProjectSummary {
+    const at = now();
+    db.transaction((tx) => {
+      if (tx.select({ id: projects.id }).from(projects).where(eq(projects.key, input.key)).get()) {
+        throw new ConflictError(`Project key ${input.key} is already used`);
+      }
+      const colors = tx
+        .select({ color: projects.color })
+        .from(projects)
+        .where(isNull(projects.archivedAt))
+        .all()
+        .map((r) => r.color);
+      const last = tx
+        .select({ sortOrder: max(projects.sortOrder) })
+        .from(projects)
+        .get();
+      const id = ulid(at.getTime());
+      tx.insert(projects)
+        .values({
+          id,
+          key: input.key,
+          name: input.name,
+          description: input.description ?? '',
+          color: input.color ?? nextProjectColor(colors),
+          icon: null,
+          status: input.status ?? 'active',
+          startDate: input.startDate ?? null,
+          targetDate: input.targetDate ?? null,
+          sortOrder: sortKeyBetween(last?.sortOrder ?? null, null),
+          createdAt: at,
+          updatedAt: at,
+        })
+        .run();
+      logEntityActivity('project', id, 'created', {}, actorId, at);
+    });
+    return getProject(input.key);
+  }
+
+  function updateProject(
+    key: string,
+    input: UpdateProjectInput,
+    actorId: string | null = currentUser().id,
+  ): ProjectSummary {
+    const current = findProjectRow(key);
+    const at = now();
+    const { patch, changes } = containerPatch(current, input, at);
+    const extra: Partial<typeof projects.$inferInsert> = {};
+    if (input.color !== undefined && input.color.toUpperCase() !== current.color.toUpperCase())
+      extra.color = input.color;
+    if (input.startDate !== undefined && input.startDate !== current.startDate) extra.startDate = input.startDate;
+
+    const all = { ...patch, ...extra };
+    if (Object.keys(all).length > 0) {
+      db.transaction((tx) => {
+        tx.update(projects)
+          .set({ ...all, updatedAt: at })
+          .where(eq(projects.id, current.id))
+          .run();
+        for (const [action, payload] of changes) logEntityActivity('project', current.id, action, payload, actorId, at);
+      });
+    }
+    return getProject(current.key);
+  }
+
+  function createSubproject(
+    projectKey: string,
+    input: CreateSubprojectInput,
+    actorId: string | null = currentUser().id,
+  ): SubprojectSummary {
+    const project = findProjectRow(projectKey);
+    const at = now();
+    const id = ulid(at.getTime());
+    db.transaction((tx) => {
+      const last = tx
+        .select({ sortOrder: max(subprojects.sortOrder) })
+        .from(subprojects)
+        .where(eq(subprojects.projectId, project.id))
+        .get();
+      tx.insert(subprojects)
+        .values({
+          id,
+          projectId: project.id,
+          name: input.name,
+          description: input.description ?? '',
+          status: input.status ?? 'active',
+          targetDate: input.targetDate ?? null,
+          sortOrder: sortKeyBetween(last?.sortOrder ?? null, null),
+          createdAt: at,
+          updatedAt: at,
+        })
+        .run();
+      logEntityActivity('subproject', id, 'created', {}, actorId, at);
+    });
+    return getSubproject(id);
+  }
+
+  function getSubproject(id: string): SubprojectSummary {
+    const row = db
+      .select({ key: projects.key })
+      .from(subprojects)
+      .innerJoin(projects, eq(subprojects.projectId, projects.id))
+      .where(eq(subprojects.id, id))
+      .get();
+    const project = row ? getProject(row.key) : undefined;
+    const sub = project && [...project.subprojects, ...project.archivedSubprojects].find((s) => s.id === id);
+    if (!sub) throw new NotFoundError('Subproject not found');
+    return sub;
+  }
+
+  function updateSubproject(
+    id: string,
+    input: UpdateSubprojectInput,
+    actorId: string | null = currentUser().id,
+  ): SubprojectSummary {
+    const current = db.select().from(subprojects).where(eq(subprojects.id, id)).get();
+    if (!current) throw new NotFoundError('Subproject not found');
+    const at = now();
+    const { patch, changes } = containerPatch(current, input, at);
+    if (Object.keys(patch).length > 0) {
+      db.transaction((tx) => {
+        tx.update(subprojects)
+          .set({ ...patch, updatedAt: at })
+          .where(eq(subprojects.id, id))
+          .run();
+        for (const [action, payload] of changes) logEntityActivity('subproject', id, action, payload, actorId, at);
+      });
+    }
+    return getSubproject(id);
   }
 
   /* ---------- Overview, search, me ---------- */
@@ -448,7 +693,8 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
 
   /* ---------- Topics: writing ---------- */
 
-  function logActivity(
+  function logEntityActivity(
+    entityType: EntityType,
     entityId: string,
     action: ActivityAction,
     payload: Record<string, unknown>,
@@ -456,8 +702,18 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     at: Date,
   ) {
     db.insert(activity)
-      .values({ id: ulid(at.getTime()), entityType: 'topic', entityId, actorId, action, payload, createdAt: at })
+      .values({ id: ulid(at.getTime()), entityType, entityId, actorId, action, payload, createdAt: at })
       .run();
+  }
+
+  function logActivity(
+    topicId: string,
+    action: ActivityAction,
+    payload: Record<string, unknown>,
+    actorId: string | null,
+    at: Date,
+  ) {
+    logEntityActivity('topic', topicId, action, payload, actorId, at);
   }
 
   function touch(topicId: string, at: Date) {
@@ -472,6 +728,7 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
       if (input.subprojectId) {
         const sub = tx.select().from(subprojects).where(eq(subprojects.id, input.subprojectId)).get();
         if (!sub || sub.projectId !== project.id) throw new ValidationError('Subproject does not belong to project');
+        if (sub.archivedAt) throw new ValidationError('Subproject is archived');
       }
       const last = tx
         .select({ number: max(topics.number), first: min(topics.sortOrder) })
@@ -552,6 +809,7 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
           const sub = tx.select().from(subprojects).where(eq(subprojects.id, input.subprojectId)).get();
           if (!sub || sub.projectId !== current.projectId)
             throw new ValidationError('Subproject does not belong to project');
+          if (sub.archivedAt) throw new ValidationError('Subproject is archived');
           changes.push(['subproject_changed', { from: row.subprojectName, to: sub.name }]);
         } else {
           changes.push(['subproject_changed', { from: row.subprojectName, to: null }]);
@@ -659,6 +917,8 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
   return {
     currentUser,
     listUsers,
+    setupStatus,
+    setup,
     listLabels,
     dormancyDays,
     listTopics,
@@ -666,6 +926,11 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     listProjects,
     getProject,
     listProjectActivity,
+    createProject,
+    updateProject,
+    createSubproject,
+    getSubproject,
+    updateSubproject,
     overview,
     search,
     me,

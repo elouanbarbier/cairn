@@ -1,19 +1,26 @@
 import type {
-  Activity,
   ApiError,
   ChecklistItem,
   CreateChecklistItemInput,
   CreateNoteInput,
+  CreateProjectInput,
+  CreateSubprojectInput,
   CreateTopicInput,
   Label,
   Me,
   Overview,
+  ProjectActivity,
   ProjectSummary,
   SearchResult,
+  SetupInput,
+  SetupStatus,
+  SubprojectSummary,
   TopicDetail,
   TopicNote,
   TopicSummary,
   UpdateChecklistItemInput,
+  UpdateProjectInput,
+  UpdateSubprojectInput,
   UpdateTopicInput,
   User,
 } from '@cairn/shared';
@@ -52,14 +59,23 @@ export interface TopicFilter {
   assignee?: string;
 }
 
-export type ProjectActivity = Activity & { topicRef: string | null; topicTitle: string | null };
-
 export const api = {
+  setupStatus: () => request<SetupStatus>('/setup'),
+  setup: (input: SetupInput) => request<User>('/setup', { method: 'POST', json: input }),
   me: () => request<Me>('/me'),
   users: () => request<User[]>('/users'),
   labels: () => request<Label[]>('/labels'),
   overview: (today: string) => request<Overview>(`/overview?today=${today}`),
   projects: () => request<ProjectSummary[]>('/projects'),
+  archivedProjects: () => request<ProjectSummary[]>('/projects?archived=true'),
+  project: (key: string) => request<ProjectSummary>(`/projects/${key}`),
+  createProject: (input: CreateProjectInput) => request<ProjectSummary>('/projects', { method: 'POST', json: input }),
+  updateProject: (key: string, input: UpdateProjectInput) =>
+    request<ProjectSummary>(`/projects/${key}`, { method: 'PATCH', json: input }),
+  createSubproject: (key: string, input: CreateSubprojectInput) =>
+    request<SubprojectSummary>(`/projects/${key}/subprojects`, { method: 'POST', json: input }),
+  updateSubproject: (id: string, input: UpdateSubprojectInput) =>
+    request<SubprojectSummary>(`/subprojects/${id}`, { method: 'PATCH', json: input }),
   projectActivity: (key: string) => request<ProjectActivity[]>(`/projects/${key}/activity`),
   topics: (filter: TopicFilter) => {
     const params = new URLSearchParams(Object.entries(filter).filter((e): e is [string, string] => Boolean(e[1])));

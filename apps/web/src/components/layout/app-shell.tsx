@@ -2,23 +2,37 @@ import { Outlet, useNavigate } from '@tanstack/react-router';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import { useTranslation } from 'react-i18next';
 import { CommandPalette } from '@/components/command-palette';
+import { CreateProjectDialog, CreateSubprojectDialog } from '@/components/create-project-dialog';
 import { CreateTopicDialog } from '@/components/create-topic-dialog';
 import { ShortcutsDialog } from '@/components/shortcuts-dialog';
+import { SetupPage } from '@/features/setup/setup-page';
+import { TopicPanel } from '@/features/topic/topic-page';
 import { useHotkeys } from '@/lib/hotkeys';
-import { useProjects } from '@/lib/queries';
+import { useProjects, useSetupStatus } from '@/lib/queries';
+import { useTopicPanel } from '@/lib/topic-panel';
 import { useUi } from '@/lib/ui-state';
 import { Sidebar } from './sidebar';
 
+/** An empty workspace first asks for its first account; then the app itself. */
 export function AppShell() {
+  const setup = useSetupStatus();
+  if (setup.isPending) return null;
+  if (setup.data?.required) return <SetupPage />;
+  return <Workspace />;
+}
+
+function Workspace() {
   const { t } = useTranslation();
   const ui = useUi();
   const navigate = useNavigate();
   const projects = useProjects();
+  const panel = useTopicPanel();
 
   useHotkeys({
     'mod+k': () => (ui.paletteOpen ? ui.closePalette() : ui.openPalette()),
     '/': () => ui.openPalette(),
     c: () => ui.openCreate(ui.screenContext),
+    'shift+p': () => ui.setProjectDialogOpen(true),
     '?': () => ui.setShortcutsOpen(true),
     'g o': () => void navigate({ to: '/' }),
     'g p': () => {
@@ -47,8 +61,12 @@ export function AppShell() {
         <Outlet />
       </main>
 
+      {panel.current ? <TopicPanel topicRef={panel.current} onClose={panel.close} /> : null}
+
       <CommandPalette />
       <CreateTopicDialog />
+      <CreateProjectDialog />
+      <CreateSubprojectDialog />
       <ShortcutsDialog />
     </div>
   );

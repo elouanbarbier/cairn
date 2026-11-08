@@ -1,6 +1,8 @@
 import {
   COMPLETED_WINDOW_DAYS,
   PRIORITY_RANK,
+  PROJECT_COLORS,
+  PROJECT_KEY_PATTERN,
   STATUS_CATEGORY,
   TOPIC_REF_PATTERN,
   type TopicStatus,
@@ -129,4 +131,68 @@ export function buildOverview({
     progress,
     completedThisWeek,
   };
+}
+
+/** Short words left out when building a key from initials ("Centre d'aide" → `CA`). */
+const KEY_STOPWORDS = new Set([
+  'A',
+  'AU',
+  'AUX',
+  'D',
+  'DE',
+  'DES',
+  'DU',
+  'ET',
+  'EN',
+  'L',
+  'LA',
+  'LE',
+  'LES',
+  'UN',
+  'UNE',
+  'AN',
+  'AND',
+  'FOR',
+  'IN',
+  'OF',
+  'THE',
+  'TO',
+]);
+
+/**
+ * Suggests a free project key from a name: initials for several words ("Portail client" → `PC`), else the first
+ * letters ("Cairn" → `CAI`), with longer variants when a key is taken. Returns `''` when the name has no letters.
+ */
+export function suggestProjectKey(name: string, taken: Iterable<string> = []): string {
+  const used = new Set([...taken].map((k) => k.toUpperCase()));
+  const all = name
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toUpperCase()
+    .split(/[^A-Z]+/)
+    .filter(Boolean);
+  if (all.length === 0) return '';
+  const meaningful = all.filter((w) => !KEY_STOPWORDS.has(w));
+  const words = meaningful.length > 0 ? meaningful : all;
+  const letters = words.join('');
+
+  const candidates: string[] = [];
+  if (words.length >= 2)
+    candidates.push(
+      words
+        .slice(0, 4)
+        .map((w) => w[0])
+        .join(''),
+    );
+  candidates.push(letters.slice(0, 3), letters.slice(0, 4), letters.slice(0, 5), letters.slice(0, 2));
+  const base = letters.length >= 2 ? letters.slice(0, 4) : letters.padEnd(2, letters);
+  for (let code = 65; code <= 90; code++) candidates.push(base + String.fromCharCode(code));
+
+  return candidates.find((key) => PROJECT_KEY_PATTERN.test(key) && !used.has(key)) ?? '';
+}
+
+/** First palette color no project uses yet, cycling once all are taken. */
+export function nextProjectColor(used: readonly string[]): string {
+  const taken = new Set(used.map((c) => c.toUpperCase()));
+  return PROJECT_COLORS.find((c) => !taken.has(c)) ?? PROJECT_COLORS[used.length % PROJECT_COLORS.length] ?? '#6366F1';
 }

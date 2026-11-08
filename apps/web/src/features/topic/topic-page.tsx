@@ -1,11 +1,12 @@
 import type { TopicDetail } from '@cairn/shared';
 import { Link, useCanGoBack, useNavigate, useRouter } from '@tanstack/react-router';
-import { EllipsisIcon, LinkIcon, PencilIcon, PlusIcon } from 'lucide-react';
+import { EllipsisIcon, LinkIcon, Maximize2Icon, PlusIcon } from 'lucide-react';
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { ActivityItem } from '@/components/activity-item';
 import { Avatar, ColorSquare, EmptyState, LoadError, ProgressBar } from '@/components/bits';
+import { InlineTitle, MarkdownEditor } from '@/components/editors';
 import { Breadcrumb, PageHeader } from '@/components/layout/page-header';
 import { Markdown } from '@/components/markdown';
 import { Button } from '@/components/ui/button';
@@ -37,10 +38,28 @@ import { topicRoute } from '@/router';
 import { type OpenMenu, TopicProperties } from './topic-properties';
 
 export function TopicPage() {
-  const { t } = useTranslation();
   const { ref } = topicRoute.useParams();
-  const topicRef = ref.toUpperCase();
+  return <TopicLoader topicRef={ref.toUpperCase()} />;
+}
+
+/** The topic over the current page, from a list, the kanban or the overview. */
+export function TopicPanel({ topicRef, onClose }: { topicRef: string; onClose: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <aside
+      aria-label={t('topic.panel', { ref: topicRef })}
+      className="fixed inset-y-0 right-0 z-30 flex w-full animate-panel-in flex-col overflow-y-auto border-border border-l bg-background shadow-float md:w-[min(920px,calc(100vw-232px))]"
+    >
+      <TopicLoader topicRef={topicRef} panel={{ onClose }} />
+    </aside>
+  );
+}
+
+function TopicLoader({ topicRef, panel }: { topicRef: string; panel?: { onClose: () => void } }) {
+  const { t } = useTranslation();
   const topic = useTopic(topicRef);
+  // Until the topic is there (loading, error), Escape still closes the panel; then the topic view takes over.
+  useHotkeys({ escape: () => panel?.onClose() }, Boolean(panel) && !topic.data);
 
   if (topic.isError) {
     return topic.error instanceof ApiRequestError && topic.error.status === 404 ? (
@@ -58,10 +77,10 @@ export function TopicPage() {
     );
   }
   if (!topic.data) return null;
-  return <TopicView topic={topic.data} />;
+  return <TopicView topic={topic.data} panel={panel} />;
 }
 
-function TopicView({ topic }: { topic: TopicDetail }) {
+function TopicView({ topic, panel }: { topic: TopicDetail; panel?: { onClose: () => void } }) {
   const { t } = useTranslation();
   const ui = useUi();
   const router = useRouter();
@@ -73,6 +92,14 @@ function TopicView({ topic }: { topic: TopicDetail }) {
   const update = useUpdateTopic();
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
   const project = projects.data?.find((p) => p.id === topic.projectId);
+  const pageContext = useRef(ui.screenContext);
+
+  // The panel hands the screen context back to the page underneath when it closes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: restore once, on unmount
+  useEffect(() => {
+    if (!panel) return;
+    return () => ui.setScreenContext(pageContext.current);
+  }, []);
 
   useEffect(() => {
     ui.setScreenContext({
@@ -85,7 +112,8 @@ function TopicView({ topic }: { topic: TopicDetail }) {
   }, [topic.projectId, topic.projectName, topic.subprojectId, topic.subprojectName, topic.ref, ui.setScreenContext]);
 
   const close = () => {
-    if (canGoBack) router.history.back();
+    if (panel) panel.onClose();
+    else if (canGoBack) router.history.back();
     else if (topic.subprojectId)
       void navigate({
         to: '/p/$key/s/$subprojectId',
@@ -121,8 +149,21 @@ function TopicView({ topic }: { topic: TopicDetail }) {
   return (
     <>
       <PageHeader
+        menuButton={!panel}
         actions={
           <>
+            {panel ? (
+              <Button variant="outline" size="icon" asChild>
+                <Link
+                  to="/p/$key/sujets/$ref"
+                  params={{ key: topic.projectKey, ref: topic.ref }}
+                  aria-label={t('topic.openFullscreen')}
+                  title={t('topic.openFullscreen')}
+                >
+                  <Maximize2Icon className="size-[15px]" strokeWidth={1.9} />
+                </Link>
+              </Button>
+            ) : null}
             <Button variant="outline" size="icon" aria-label={t('topic.copyLink')} onClick={copyLink}>
               <LinkIcon className="size-[15px]" strokeWidth={1.9} />
             </Button>
@@ -176,10 +217,26 @@ function TopicView({ topic }: { topic: TopicDetail }) {
       </PageHeader>
 
       <div className="flex flex-auto flex-wrap items-stretch">
-        <article className="box-border flex min-w-0 flex-[999_1_520px] flex-col gap-7 px-4 pt-8 pb-14 sm:px-12">
+        <article
+          className={cn(
+            'box-border flex min-w-0 flex-col gap-7 px-4 pt-8 pb-14',
+            panel ? 'flex-[999_1_440px] sm:px-8' : 'flex-[999_1_520px] sm:px-12',
+          )}
+        >
           <div className="flex max-w-[760px] flex-col gap-3">
-            <TitleEditor key={topic.id} value={topic.title} onSave={(title) => change({ title })} />
-            <DescriptionEditor value={topic.description} onSave={(description) => change({ description })} />
+            <InlineTitle
+              key={topic.id}
+              value={topic.title}
+              onSave={(title) => change({ title })}
+              label={t('topic.editTitle')}
+              className="font-semibold text-3xl tracking-[-0.02em]"
+            />
+            <MarkdownEditor
+              value={topic.description}
+              onSave={(description) => change({ description })}
+              label={t('topic.editDescription')}
+              placeholder={t('topic.descriptionPlaceholder')}
+            />
           </div>
           <Checklist topic={topic} />
           <Journal topic={topic} />
@@ -206,114 +263,6 @@ function TopicView({ topic }: { topic: TopicDetail }) {
         />
       </div>
     </>
-  );
-}
-
-/** Title edited in place: Enter or blur saves, Escape reverts. */
-function TitleEditor({ value, onSave }: { value: string; onSave: (value: string) => void }) {
-  const { t } = useTranslation();
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-
-  const commit = () => {
-    const next = draft.replace(/\s+/g, ' ').trim();
-    if (next && next !== value) onSave(next);
-    else setDraft(value);
-  };
-
-  return (
-    <h1 className="m-0">
-      <textarea
-        aria-label={t('topic.editTitle')}
-        value={draft}
-        rows={1}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            e.currentTarget.blur();
-          }
-          if (e.key === 'Escape') {
-            setDraft(value);
-            requestAnimationFrame(() => (e.target as HTMLTextAreaElement).blur());
-          }
-        }}
-        className="-mx-1.5 block w-[calc(100%+12px)] resize-none rounded-md border-0 bg-transparent px-1.5 py-0.5 font-semibold text-3xl text-ink tracking-[-0.02em] outline-none [field-sizing:content] hover:bg-subtle focus-visible:bg-subtle focus-visible:outline-none"
-      />
-    </h1>
-  );
-}
-
-function DescriptionEditor({ value, onSave }: { value: string; onSave: (value: string) => void }) {
-  const { t } = useTranslation();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-
-  const save = () => {
-    if (draft !== value) onSave(draft);
-    setEditing(false);
-  };
-
-  if (editing) {
-    return (
-      <div className="flex flex-col gap-2">
-        <Textarea
-          aria-label={t('topic.editDescription')}
-          value={draft}
-          rows={Math.max(5, draft.split('\n').length + 1)}
-          autoFocus
-          placeholder={t('topic.descriptionPlaceholder')}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save();
-            if (e.key === 'Escape') {
-              e.stopPropagation();
-              setDraft(value);
-              setEditing(false);
-            }
-          }}
-          className="font-sans text-base leading-[1.6]"
-        />
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => setEditing(false)}>
-            {t('topic.cancel')}
-          </Button>
-          <Button onClick={save} className="pr-2">
-            {t('topic.save')}
-            <Kbd variant="inverse">{isMac ? '⌘↵' : 'Ctrl ↵'}</Kbd>
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  const start = () => {
-    setDraft(value);
-    setEditing(true);
-  };
-
-  return value ? (
-    <div className="group relative -mx-2 rounded-md px-2 py-1 hover:bg-subtle">
-      <Markdown source={value} className="flex flex-col gap-2.5 text-base text-ink-body" />
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={start}
-        aria-label={t('topic.editDescription')}
-        className="absolute top-1 right-1 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
-      >
-        <PencilIcon className="size-3.5" />
-      </Button>
-    </div>
-  ) : (
-    <button
-      type="button"
-      onClick={start}
-      className="self-start border-0 bg-transparent p-0 text-base text-ink-4 hover:text-ink-3"
-    >
-      {t('topic.descriptionPlaceholder')}
-    </button>
   );
 }
 

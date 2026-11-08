@@ -1,6 +1,7 @@
 import type { ProjectSummary } from '@cairn/shared';
 import { Link, useParams } from '@tanstack/react-router';
 import {
+  ArchiveIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   CircleUserRoundIcon,
@@ -26,7 +27,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Kbd } from '@/components/ui/kbd';
 import { type Language, setLanguage } from '@/i18n';
-import { useMe, useProjects } from '@/lib/queries';
+import { useArchivedProjects, useMe, useProjects } from '@/lib/queries';
 import { type ThemeSetting, useTheme } from '@/lib/theme';
 import { useUi } from '@/lib/ui-state';
 import { cn, isMac } from '@/lib/utils';
@@ -136,7 +137,35 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <div className="flex flex-col gap-px">
-        <div className="flex h-6.5 items-center px-2 font-medium text-caption text-ink-4">{t('nav.projects')}</div>
+        <div className="flex h-6.5 items-center pr-1 pl-2 font-medium text-caption text-ink-4">
+          {t('nav.projects')}
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="ml-auto"
+            aria-label={t('nav.newProject')}
+            title={`${t('nav.newProject')} (⇧P)`}
+            onClick={() => {
+              onNavigate?.();
+              ui.setProjectDialogOpen(true);
+            }}
+          >
+            <PlusIcon className="size-3.5" strokeWidth={2} />
+          </Button>
+        </div>
+        {projects.data?.length === 0 ? (
+          <button
+            type="button"
+            onClick={() => {
+              onNavigate?.();
+              ui.setProjectDialogOpen(true);
+            }}
+            className={cn(navItem, 'border-0 bg-transparent text-left font-normal text-ink-3')}
+          >
+            <PlusIcon className="size-3.5 shrink-0" strokeWidth={2} aria-hidden />
+            {t('nav.newProject')}
+          </button>
+        ) : null}
         {projects.data?.map((project) => (
           <ProjectTree
             key={project.id}
@@ -146,6 +175,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             onNavigate={onNavigate}
           />
         ))}
+        <ArchivedProjects onNavigate={onNavigate} />
       </div>
 
       <div className="mt-auto flex items-center gap-2 py-1 pr-1 pl-2">
@@ -173,10 +203,11 @@ function ProjectTree({
   onNavigate?: () => void;
 }) {
   const { t } = useTranslation();
+  const ui = useUi();
   const Chevron = expanded ? ChevronDownIcon : ChevronRightIcon;
   return (
     <>
-      <div className="relative">
+      <div className="group/row relative">
         <button
           type="button"
           onClick={onToggle}
@@ -196,8 +227,23 @@ function ProjectTree({
         >
           <ColorSquare color={project.color} size={14} />
           <span className="truncate">{project.name}</span>
-          <span className="ml-auto font-normal text-ink-4 text-xs tabular-nums">{project.openCount}</span>
+          <span className="ml-auto font-normal text-ink-4 text-xs tabular-nums group-focus-within/row:invisible group-hover/row:invisible">
+            {project.openCount}
+          </span>
         </Link>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label={t('palette.newSubprojectIn', { name: project.name })}
+          title={t('palette.newSubprojectIn', { name: project.name })}
+          onClick={() => {
+            onNavigate?.();
+            ui.setSubprojectDialogFor(project.key);
+          }}
+          className="absolute top-1/2 right-1 -translate-y-1/2 opacity-0 hover:bg-background focus-visible:opacity-100 group-hover/row:opacity-100"
+        >
+          <PlusIcon className="size-3.5" strokeWidth={2} />
+        </Button>
       </div>
       {expanded
         ? project.subprojects.map((sub) => (
@@ -212,6 +258,46 @@ function ProjectTree({
             >
               <span className="truncate">{sub.name}</span>
               <span className="ml-auto font-normal text-ink-4 text-xs tabular-nums">{sub.openCount}</span>
+            </Link>
+          ))
+        : null}
+    </>
+  );
+}
+
+/** Archived projects, folded at the end of the list; shown only when there are some. */
+function ArchivedProjects({ onNavigate }: { onNavigate?: () => void }) {
+  const { t } = useTranslation();
+  const archived = useArchivedProjects();
+  const [open, setOpen] = useState(false);
+  if (!archived.data?.length) return null;
+  const Chevron = open ? ChevronDownIcon : ChevronRightIcon;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className={cn(navItem, 'gap-2 border-0 bg-transparent pl-1.5 text-left font-normal text-ink-4')}
+      >
+        <Chevron className="mx-[3px] size-3" strokeWidth={2.25} aria-hidden />
+        <ArchiveIcon className="size-3.5 shrink-0" strokeWidth={1.75} aria-hidden />
+        {t('nav.archivedProjects')}
+        <span className="ml-auto text-xs tabular-nums">{archived.data.length}</span>
+      </button>
+      {open
+        ? archived.data.map((project) => (
+            <Link
+              key={project.id}
+              to="/p/$key"
+              params={{ key: project.key }}
+              activeOptions={{ exact: true, includeSearch: false }}
+              activeProps={{ className: 'bg-sidebar-accent text-ink', 'aria-current': 'page' }}
+              onClick={onNavigate}
+              className="flex h-7 items-center gap-2 rounded-md pr-2 pl-6.5 text-ink-3 text-small no-underline transition-colors duration-150 hover:bg-sidebar-accent hover:text-ink"
+            >
+              <ColorSquare color={project.color} size={10} className="opacity-60" />
+              <span className="truncate">{project.name}</span>
             </Link>
           ))
         : null}

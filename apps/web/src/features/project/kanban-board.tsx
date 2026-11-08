@@ -38,6 +38,7 @@ import { PriorityIcon, StatusIcon } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import { formatShortDate, todayISO } from '@/lib/format';
 import { useUpdateTopic } from '@/lib/queries';
+import { useTopicPanel } from '@/lib/topic-panel';
 import { useUi } from '@/lib/ui-state';
 import { cn } from '@/lib/utils';
 
@@ -297,6 +298,7 @@ const Card = forwardRef<HTMLAnchorElement, CardProps>(function Card(
   ref,
 ) {
   const { t } = useTranslation();
+  const panel = useTopicPanel();
   const closed = isClosed(topic.status);
   const late = topic.dueDate !== null && !closed && diffDays(today, topic.dueDate) < 0;
   const idle = elapsedDays(topic.lastActivityAt, now);
@@ -309,9 +311,11 @@ const Card = forwardRef<HTMLAnchorElement, CardProps>(function Card(
       params={{ key: topic.projectKey, ref: topic.ref }}
       className={cn(
         'flex touch-manipulation flex-col gap-2 rounded-lg border border-border bg-card px-3 pt-2.5 pb-[11px] text-ink no-underline shadow-card outline-offset-2',
+        topic.ref === panel.current && 'border-brand',
         className,
       )}
       {...rest}
+      onClick={panel.onLinkClick(topic)}
     >
       <div className="flex items-center gap-2">
         <span className="font-mono text-caption text-ink-4">{topic.ref}</span>

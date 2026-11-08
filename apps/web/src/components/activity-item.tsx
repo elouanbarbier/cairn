@@ -1,7 +1,10 @@
-import type { Activity, TopicPriority, TopicStatus } from '@cairn/shared';
+import type { Activity, ProjectStatus, TopicPriority, TopicStatus } from '@cairn/shared';
 import {
+  ArchiveIcon,
+  ArchiveRestoreIcon,
   CalendarIcon,
   CheckSquareIcon,
+  CircleDotIcon,
   FolderInputIcon,
   MessageSquareTextIcon,
   PencilIcon,
@@ -16,78 +19,152 @@ import { formatShortDate } from '@/lib/format';
 
 const iconClass = 'size-3.5 shrink-0 text-ink-4';
 
-/** One line of history: icon, actor, what happened, when. */
-export function ActivityItem({ entry, suffix }: { entry: Activity; suffix?: ReactNode }) {
-  const { t } = useTranslation();
-  const p = entry.payload as Record<string, string | boolean | null | undefined>;
-  let icon: ReactNode = <PencilIcon className={iconClass} strokeWidth={2} aria-hidden />;
-  let text: string;
+type Payload = Record<string, string | boolean | null | undefined>;
+type T = ReturnType<typeof useTranslation>['t'];
 
-  switch (entry.action) {
+function topicLine(t: T, action: Activity['action'], p: Payload): { icon?: ReactNode; text: string } {
+  switch (action) {
     case 'created':
-      icon = <PlusIcon className={iconClass} strokeWidth={2} aria-hidden />;
-      text = t('topic.activityLog.created');
-      break;
+      return {
+        icon: <PlusIcon className={iconClass} strokeWidth={2} aria-hidden />,
+        text: t('topic.activityLog.created'),
+      };
     case 'status_changed':
-      icon = <StatusIcon status={p.to as TopicStatus} />;
-      text = t('topic.activityLog.status_changed', {
-        from: t(`status.${p.from as TopicStatus}`),
-        to: t(`status.${p.to as TopicStatus}`),
-      });
-      break;
+      return {
+        icon: <StatusIcon status={p.to as TopicStatus} />,
+        text: t('topic.activityLog.status_changed', {
+          from: t(`status.${p.from as TopicStatus}`),
+          to: t(`status.${p.to as TopicStatus}`),
+        }),
+      };
     case 'priority_changed':
-      icon = <PriorityIcon priority={p.to as TopicPriority} />;
-      text = t('topic.activityLog.priority_changed', {
-        from: t(`priority.${p.from as TopicPriority}`),
-        to: t(`priority.${p.to as TopicPriority}`),
-      });
-      break;
+      return {
+        icon: <PriorityIcon priority={p.to as TopicPriority} />,
+        text: t('topic.activityLog.priority_changed', {
+          from: t(`priority.${p.from as TopicPriority}`),
+          to: t(`priority.${p.to as TopicPriority}`),
+        }),
+      };
     case 'due_date_changed':
-      icon = <CalendarIcon className={iconClass} strokeWidth={2} aria-hidden />;
-      text = p.to
-        ? t('topic.activityLog.due_date_set', { to: formatShortDate(String(p.to)) })
-        : t('topic.activityLog.due_date_cleared');
-      break;
+      return {
+        icon: <CalendarIcon className={iconClass} strokeWidth={2} aria-hidden />,
+        text: p.to
+          ? t('topic.activityLog.due_date_set', { to: formatShortDate(String(p.to)) })
+          : t('topic.activityLog.due_date_cleared'),
+      };
     case 'assignee_changed':
-      icon = <UserRoundIcon className={iconClass} strokeWidth={2} aria-hidden />;
-      text = t('topic.activityLog.assignee_changed');
-      break;
+      return {
+        icon: <UserRoundIcon className={iconClass} strokeWidth={2} aria-hidden />,
+        text: t('topic.activityLog.assignee_changed'),
+      };
     case 'subproject_changed':
-      icon = <FolderInputIcon className={iconClass} strokeWidth={2} aria-hidden />;
-      text = t('topic.activityLog.subproject_changed', { to: p.to ?? t('topic.noSubproject') });
-      break;
+      return {
+        icon: <FolderInputIcon className={iconClass} strokeWidth={2} aria-hidden />,
+        text: t('topic.activityLog.subproject_changed', { to: p.to ?? t('topic.noSubproject') }),
+      };
     case 'labels_changed':
-      icon = <TagIcon className={iconClass} strokeWidth={2} aria-hidden />;
-      text = t('topic.activityLog.labels_changed');
-      break;
+      return {
+        icon: <TagIcon className={iconClass} strokeWidth={2} aria-hidden />,
+        text: t('topic.activityLog.labels_changed'),
+      };
     case 'title_changed':
-      text = t('topic.activityLog.title_changed');
-      break;
+      return { text: t('topic.activityLog.title_changed') };
     case 'description_changed':
-      text = t('topic.activityLog.description_changed');
-      break;
+      return { text: t('topic.activityLog.description_changed') };
     case 'checklist_item_added':
-      icon = <CheckSquareIcon className={iconClass} strokeWidth={2} aria-hidden />;
-      text = t('topic.activityLog.checklist_item_added', { text: p.text });
-      break;
+      return {
+        icon: <CheckSquareIcon className={iconClass} strokeWidth={2} aria-hidden />,
+        text: t('topic.activityLog.checklist_item_added', { text: p.text }),
+      };
     case 'checklist_item_toggled':
-      icon = <CheckSquareIcon className={iconClass} strokeWidth={2} aria-hidden />;
-      text = t(p.done ? 'topic.activityLog.checklist_item_checked' : 'topic.activityLog.checklist_item_unchecked', {
-        text: p.text,
-      });
-      break;
+      return {
+        icon: <CheckSquareIcon className={iconClass} strokeWidth={2} aria-hidden />,
+        text: t(p.done ? 'topic.activityLog.checklist_item_checked' : 'topic.activityLog.checklist_item_unchecked', {
+          text: p.text,
+        }),
+      };
     case 'note_added':
-      icon = <MessageSquareTextIcon className={iconClass} strokeWidth={2} aria-hidden />;
-      text = t('topic.activityLog.note_added');
-      break;
+      return {
+        icon: <MessageSquareTextIcon className={iconClass} strokeWidth={2} aria-hidden />,
+        text: t('topic.activityLog.note_added'),
+      };
+    default:
+      return { text: '' };
   }
+}
+
+/** Project and subproject lines share their wording, with the subproject's name when it applies. */
+function containerLine(
+  t: T,
+  kind: 'project' | 'subproject',
+  action: Activity['action'],
+  p: Payload,
+  name: string,
+): { icon?: ReactNode; text: string } {
+  const base = `history.${kind}` as const;
+  switch (action) {
+    case 'created':
+      return {
+        icon: <PlusIcon className={iconClass} strokeWidth={2} aria-hidden />,
+        text: t(`${base}.created`, { name }),
+      };
+    case 'renamed':
+      return { text: t(`${base}.renamed`, { from: p.from, to: p.to, name }) };
+    case 'status_changed':
+      return {
+        icon: <CircleDotIcon className={iconClass} strokeWidth={2} aria-hidden />,
+        text: t(`${base}.status_changed`, {
+          name,
+          from: t(`projectStatus.${p.from as ProjectStatus}`),
+          to: t(`projectStatus.${p.to as ProjectStatus}`),
+        }),
+      };
+    case 'target_date_changed':
+      return {
+        icon: <CalendarIcon className={iconClass} strokeWidth={2} aria-hidden />,
+        text: p.to
+          ? t(`${base}.target_set`, { name, to: formatShortDate(String(p.to)) })
+          : t(`${base}.target_cleared`, { name }),
+      };
+    case 'description_changed':
+      return { text: t(`${base}.description_changed`, { name }) };
+    case 'archived':
+      return {
+        icon: <ArchiveIcon className={iconClass} strokeWidth={2} aria-hidden />,
+        text: t(`${base}.archived`, { name }),
+      };
+    case 'restored':
+      return {
+        icon: <ArchiveRestoreIcon className={iconClass} strokeWidth={2} aria-hidden />,
+        text: t(`${base}.restored`, { name }),
+      };
+    default:
+      return { text: '' };
+  }
+}
+
+/** One line of history: icon, actor, what happened, when. */
+export function ActivityItem({
+  entry,
+  suffix,
+}: {
+  entry: Activity & { subprojectName?: string | null };
+  suffix?: ReactNode;
+}) {
+  const { t } = useTranslation();
+  const p = entry.payload as Payload;
+  const line =
+    entry.entityType === 'topic'
+      ? topicLine(t, entry.action, p)
+      : containerLine(t, entry.entityType, entry.action, p, entry.subprojectName ?? '');
+  if (!line.text) return null;
 
   return (
     <li className="flex items-center gap-2.5">
-      {icon}
+      {line.icon ?? <PencilIcon className={iconClass} strokeWidth={2} aria-hidden />}
       <span className="min-w-0">
         {entry.actor ? <span className="font-medium text-ink">{entry.actor.name.split(' ')[0]} </span> : null}
-        {text}
+        {line.text}
         {suffix}
       </span>
       <span className="ml-auto shrink-0 text-ink-4">{formatShortDate(entry.createdAt)}</span>

@@ -41,6 +41,24 @@ export const PRIORITY_RANK: Record<TopicPriority, number> = {
 
 export const PROJECT_STATUSES = ['active', 'paused', 'completed', 'archived'] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+/** Statuses a project or subproject can be given directly; `archived` goes through archiving. */
+export const PROJECT_LIVE_STATUSES = ['active', 'paused', 'completed'] as const satisfies readonly ProjectStatus[];
+
+/**
+ * Colors offered for new projects. They are data (stored per project), not interface tokens.
+ * Each one reads on both the light and dark themes.
+ */
+export const PROJECT_COLORS = [
+  '#6366F1',
+  '#0D9488',
+  '#9333EA',
+  '#E11D48',
+  '#D97706',
+  '#0284C7',
+  '#16A34A',
+  '#DB2777',
+  '#64748B',
+] as const;
 
 export const USER_ROLES = ['admin', 'member'] as const;
 export type UserRole = (typeof USER_ROLES)[number];

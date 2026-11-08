@@ -1,3 +1,4 @@
+import { TOPIC_REF_PATTERN } from '@cairn/shared';
 import { createRootRoute, createRoute, createRouter, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { EmptyState } from '@/components/bits';
@@ -18,6 +19,8 @@ export interface ViewSearch {
   tab?: ProjectTab;
   status?: string;
   priority?: string;
+  /** Topic shown in the side panel, e.g. `POR-24`. */
+  topic?: string;
 }
 
 function str(value: unknown): string | undefined {
@@ -31,7 +34,20 @@ function validateViewSearch(search: Record<string, unknown>): ViewSearch {
   const tab = ['topics', 'subprojects', 'notes', 'activity'].includes(String(search.tab))
     ? (search.tab as ProjectTab)
     : undefined;
-  return { view, group, tab, q: str(search.q), status: str(search.status), priority: str(search.priority) };
+  return {
+    view,
+    group,
+    tab,
+    q: str(search.q),
+    status: str(search.status),
+    priority: str(search.priority),
+    topic: panelTopic(search),
+  };
+}
+
+function panelTopic(search: Record<string, unknown>): string | undefined {
+  const value = str(search.topic)?.toUpperCase();
+  return value && TOPIC_REF_PATTERN.test(value) ? value : undefined;
 }
 
 function NotFound() {
@@ -51,7 +67,12 @@ function NotFound() {
 
 const rootRoute = createRootRoute({ component: AppShell, notFoundComponent: NotFound });
 
-const overviewRoute = createRoute({ getParentRoute: () => rootRoute, path: '/', component: OverviewPage });
+const overviewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/',
+  validateSearch: (search: Record<string, unknown>): ViewSearch => ({ topic: panelTopic(search) }),
+  component: OverviewPage,
+});
 
 const myTopicsRoute = createRoute({
   getParentRoute: () => rootRoute,

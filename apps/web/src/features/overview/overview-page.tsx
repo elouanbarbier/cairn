@@ -1,6 +1,13 @@
 import { diffDays, elapsedDays, type Overview, type TopicSummary } from '@cairn/shared';
 import { Link } from '@tanstack/react-router';
-import { CalendarIcon, ChartNoAxesColumnIcon, ListFilterIcon, MoonIcon, SparklesIcon } from 'lucide-react';
+import {
+  CalendarIcon,
+  ChartNoAxesColumnIcon,
+  FolderPlusIcon,
+  ListFilterIcon,
+  MoonIcon,
+  SparklesIcon,
+} from 'lucide-react';
 import { type MouseEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -17,7 +24,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Kbd } from '@/components/ui/kbd';
 import { formatLongDate, formatShortDate, formatWeekday, formatWeekdayDate, todayISO } from '@/lib/format';
-import { useMe, useOverview } from '@/lib/queries';
+import { useMe, useOverview, useProjects } from '@/lib/queries';
+import { useTopicPanel } from '@/lib/topic-panel';
 import { useUi } from '@/lib/ui-state';
 import { cn, firstName } from '@/lib/utils';
 
@@ -56,6 +64,8 @@ export function OverviewPage() {
   const ui = useUi();
   const overview = useOverview();
   const me = useMe();
+  const projects = useProjects();
+  const noProjects = projects.data?.length === 0;
   const [hidden, setHidden] = useState<string[]>(readHidden);
   const now = new Date();
   const today = todayISO();
@@ -110,10 +120,12 @@ export function OverviewPage() {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button onClick={() => ui.openCreate({})} className="pr-2">
-              {t('nav.newTopic')}
-              <Kbd variant="inverse">C</Kbd>
-            </Button>
+            {noProjects ? null : (
+              <Button onClick={() => ui.openCreate({})} className="pr-2">
+                {t('nav.newTopic')}
+                <Kbd variant="inverse">C</Kbd>
+              </Button>
+            )}
           </>
         }
       >
@@ -126,13 +138,46 @@ export function OverviewPage() {
           <h1 className="m-0 font-semibold text-2xl tracking-[-0.02em]">
             {t(greetingKey, { name: me.data ? firstName(me.data.user.name) : '' })}
           </h1>
-          {data ? <p className="m-0 text-ink-3">{t('overview.subtitle', { count: data.activeProjectCount })}</p> : null}
+          {data && !noProjects ? (
+            <p className="m-0 text-ink-3">{t('overview.subtitle', { count: data.activeProjectCount })}</p>
+          ) : null}
         </div>
 
         {overview.isError ? <LoadError onRetry={() => void overview.refetch()} /> : null}
-        {data ? <OverviewContent data={data} now={now} /> : overview.isPending ? <OverviewSkeleton /> : null}
+        {noProjects ? (
+          <FirstProject onCreate={() => ui.setProjectDialogOpen(true)} />
+        ) : data ? (
+          <OverviewContent data={data} now={now} />
+        ) : overview.isPending ? (
+          <OverviewSkeleton />
+        ) : null}
       </div>
     </>
+  );
+}
+
+/** Empty workspace: the overview invites to create the first project. */
+function FirstProject({ onCreate }: { onCreate: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <section
+      aria-labelledby="first-project"
+      className="flex flex-col items-start gap-3 rounded-xl border border-border border-dashed bg-card px-6 py-8 sm:px-8"
+    >
+      <span className="grid size-9 place-items-center rounded-lg bg-brand-soft text-brand">
+        <FolderPlusIcon className="size-[18px]" strokeWidth={1.9} aria-hidden />
+      </span>
+      <div className="flex flex-col gap-1">
+        <h2 id="first-project" className="m-0 font-semibold text-lg">
+          {t('overview.empty.noProjectsTitle')}
+        </h2>
+        <p className="m-0 max-w-[520px] text-ink-3">{t('overview.empty.noProjects')}</p>
+      </div>
+      <Button onClick={onCreate} className="pr-2">
+        {t('overview.empty.createProject')}
+        <Kbd variant="inverse">⇧P</Kbd>
+      </Button>
+    </section>
   );
 }
 
@@ -183,11 +228,13 @@ const rowClass =
   'flex min-h-9 items-center gap-2.5 border-line border-t px-4 text-ink no-underline transition-colors duration-150 hover:bg-row-active';
 
 function TopicLink({ topic, className, children }: { topic: TopicSummary; className?: string; children: ReactNode }) {
+  const panel = useTopicPanel();
   return (
     <Link
       to="/p/$key/sujets/$ref"
       params={{ key: topic.projectKey, ref: topic.ref }}
-      className={cn(rowClass, className)}
+      onClick={panel.onLinkClick(topic)}
+      className={cn(rowClass, topic.ref === panel.current && 'bg-row-active', className)}
     >
       {children}
     </Link>

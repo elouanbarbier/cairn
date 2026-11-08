@@ -6,20 +6,31 @@ import { Button } from '@/components/ui/button';
 import { useUi } from '@/lib/ui-state';
 
 /** 48 px top bar of the main area: title or breadcrumb on the left, actions on the right. */
-export function PageHeader({ children, actions }: { children: ReactNode; actions?: ReactNode }) {
+export function PageHeader({
+  children,
+  actions,
+  menuButton = true,
+}: {
+  children: ReactNode;
+  actions?: ReactNode;
+  /** The navigation button shown on small screens; off inside the topic panel. */
+  menuButton?: boolean;
+}) {
   const { t } = useTranslation();
   const ui = useUi();
   return (
     <header className="sticky top-0 z-20 flex min-h-12 flex-wrap items-center gap-x-3 gap-y-2 border-border border-b bg-background px-5 py-2">
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className="-ml-1.5 md:hidden"
-        aria-label={t('nav.openMenu')}
-        onClick={() => ui.setNavOpen(true)}
-      >
-        <MenuIcon className="size-4" />
-      </Button>
+      {menuButton ? (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="-ml-1.5 md:hidden"
+          aria-label={t('nav.openMenu')}
+          onClick={() => ui.setNavOpen(true)}
+        >
+          <MenuIcon className="size-4" />
+        </Button>
+      ) : null}
       {children}
       {actions ? <span className="ml-auto flex flex-wrap items-center gap-2">{actions}</span> : null}
     </header>

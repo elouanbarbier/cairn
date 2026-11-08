@@ -8,6 +8,7 @@ import { isMac } from '@/lib/utils';
 type Item =
   | 'palette'
   | 'newTopic'
+  | 'newProject'
   | 'status'
   | 'priority'
   | 'due'
@@ -23,6 +24,7 @@ type Item =
 const SHORTCUTS: Array<{ item: Item; keys: string[][] }> = [
   { item: 'palette', keys: [[isMac ? '⌘' : 'Ctrl', 'K']] },
   { item: 'newTopic', keys: [['C']] },
+  { item: 'newProject', keys: [['⇧', 'P']] },
   { item: 'status', keys: [['S']] },
   { item: 'priority', keys: [['P']] },
   { item: 'due', keys: [['D']] },

@@ -3,6 +3,7 @@ import { useMatchRoute, useNavigate } from '@tanstack/react-router';
 import {
   CheckIcon,
   CircleUserRoundIcon,
+  FolderPlusIcon,
   KeyboardIcon,
   LayersIcon,
   LayoutDashboardIcon,
@@ -20,6 +21,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Kbd } from '@/components/ui/kbd';
 import { useProjects, useSearch, useTopic, useUpdateTopic } from '@/lib/queries';
 import { useTheme } from '@/lib/theme';
+import { useTopicPanel } from '@/lib/topic-panel';
 import { useUi } from '@/lib/ui-state';
 import { cn, isMac, normalize, splitMatch } from '@/lib/utils';
 import type { ViewSearch } from '@/router';
@@ -58,6 +60,7 @@ export function CommandPalette() {
   const { t } = useTranslation();
   const ui = useUi();
   const navigate = useNavigate();
+  const panel = useTopicPanel();
   const matchRoute = useMatchRoute();
   const { setting, setSetting } = useTheme();
   const projects = useProjects();
@@ -88,7 +91,7 @@ export function CommandPalette() {
   const close = () => ui.closePalette();
   const openTopic = (topic: Pick<TopicSummary, 'projectKey' | 'ref'>) => {
     close();
-    void navigate({ to: '/p/$key/sujets/$ref', params: { key: topic.projectKey, ref: topic.ref } });
+    panel.open(topic);
   };
 
   // Rebuilt on each render: a handful of items, always in sync with the context.
@@ -105,6 +108,35 @@ export function CommandPalette() {
         ui.openCreate(ctx);
       },
     });
+    // Creating projects and subprojects stays at hand, and is found by typing its name.
+    const contextProject = projects.data?.find((p) => p.id === ctx.projectId);
+    const creations: PaletteAction[] = [
+      {
+        id: 'new-project',
+        label: t('palette.newProject'),
+        icon: <FolderPlusIcon className="size-3.5 text-ink-3" strokeWidth={2} aria-hidden />,
+        shortcut: '⇧P',
+        run: () => {
+          close();
+          ui.setProjectDialogOpen(true);
+        },
+      },
+      ...(contextProject
+        ? [
+            {
+              id: 'new-subproject',
+              label: t('palette.newSubprojectIn', { name: contextProject.name }),
+              icon: <LayersIcon className="size-3.5 text-ink-3" strokeWidth={2} aria-hidden />,
+              run: () => {
+                close();
+                ui.setSubprojectDialogFor(contextProject.key);
+              },
+            },
+          ]
+        : []),
+    ];
+    const typed = normalize(query.trim());
+    list.push(...creations.filter((a) => !typed || normalize(a.label).includes(typed)));
     if (targetRef) {
       list.push({
         id: 'status',

@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { PROJECT_STATUSES, TOPIC_PRIORITIES, TOPIC_STATUSES, USER_ROLES } from './constants.ts';
+import {
+  PROJECT_KEY_PATTERN,
+  PROJECT_LIVE_STATUSES,
+  PROJECT_STATUSES,
+  TOPIC_PRIORITIES,
+  TOPIC_STATUSES,
+  USER_ROLES,
+} from './constants.ts';
 
 /** `YYYY-MM-DD` calendar date. */
 export const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD');
@@ -10,6 +17,7 @@ export const colorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Expected #RRGG
 export const topicStatusSchema = z.enum(TOPIC_STATUSES);
 export const topicPrioritySchema = z.enum(TOPIC_PRIORITIES);
 export const projectStatusSchema = z.enum(PROJECT_STATUSES);
+export const projectLiveStatusSchema = z.enum(PROJECT_LIVE_STATUSES);
 export const userRoleSchema = z.enum(USER_ROLES);
 
 export const userSchema = z.object({
@@ -41,6 +49,7 @@ export const subprojectSummarySchema = z.object({
   status: projectStatusSchema,
   targetDate: isoDateSchema.nullable(),
   sortOrder: z.string(),
+  archivedAt: timestampSchema.nullable(),
   /** Topics that are not closed (backlog included). */
   openCount: z.number().int(),
   progress: progressSchema,
@@ -58,9 +67,13 @@ export const projectSummarySchema = z.object({
   startDate: isoDateSchema.nullable(),
   targetDate: isoDateSchema.nullable(),
   sortOrder: z.string(),
+  archivedAt: timestampSchema.nullable(),
   openCount: z.number().int(),
   progress: progressSchema,
+  /** Subprojects in use, in sort order. */
   subprojects: z.array(subprojectSummarySchema),
+  /** Archived subprojects, kept apart so they can be restored. */
+  archivedSubprojects: z.array(subprojectSummarySchema),
 });
 export type ProjectSummary = z.infer<typeof projectSummarySchema>;
 
@@ -123,6 +136,11 @@ export const ACTIVITY_ACTIONS = [
   'checklist_item_added',
   'checklist_item_toggled',
   'note_added',
+  // Projects and subprojects
+  'renamed',
+  'target_date_changed',
+  'archived',
+  'restored',
 ] as const;
 export const activityActionSchema = z.enum(ACTIVITY_ACTIONS);
 export type ActivityAction = z.infer<typeof activityActionSchema>;
@@ -137,6 +155,14 @@ export const activitySchema = z.object({
   createdAt: timestampSchema,
 });
 export type Activity = z.infer<typeof activitySchema>;
+
+/** A line of a project's history: its own changes, its subprojects' and its topics'. */
+export const projectActivitySchema = activitySchema.extend({
+  topicRef: z.string().nullable(),
+  topicTitle: z.string().nullable(),
+  subprojectName: z.string().nullable(),
+});
+export type ProjectActivity = z.infer<typeof projectActivitySchema>;
 
 export const topicDetailSchema = topicSummarySchema.extend({
   description: z.string(),
@@ -191,7 +217,64 @@ export const meSchema = z.object({
 });
 export type Me = z.infer<typeof meSchema>;
 
+/** Whether the workspace still needs its first account. */
+export const setupStatusSchema = z.object({ required: z.boolean() });
+export type SetupStatus = z.infer<typeof setupStatusSchema>;
+
 /* ---------- Inputs ---------- */
+
+/** First run: creates the first account, which is admin. Passwords arrive with authentication (J4). */
+export const setupInputSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  email: z.string().trim().toLowerCase().pipe(z.email()),
+});
+export type SetupInput = z.infer<typeof setupInputSchema>;
+
+export const projectKeySchema = z.string().trim().toUpperCase().regex(PROJECT_KEY_PATTERN, 'Expected 2 to 5 letters');
+
+export const createProjectInputSchema = z.object({
+  /** Fixed once created: topic references and links depend on it. */
+  key: projectKeySchema,
+  name: z.string().trim().min(1).max(120),
+  color: colorSchema.optional(),
+  description: z.string().max(100_000).optional(),
+  status: projectLiveStatusSchema.optional(),
+  startDate: isoDateSchema.nullable().optional(),
+  targetDate: isoDateSchema.nullable().optional(),
+});
+export type CreateProjectInput = z.infer<typeof createProjectInputSchema>;
+
+export const updateProjectInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    color: colorSchema,
+    description: z.string().max(100_000),
+    /** `archived` archives the project; any other status restores it. */
+    status: projectStatusSchema,
+    startDate: isoDateSchema.nullable(),
+    targetDate: isoDateSchema.nullable(),
+  })
+  .partial();
+export type UpdateProjectInput = z.infer<typeof updateProjectInputSchema>;
+
+export const createSubprojectInputSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  description: z.string().max(100_000).optional(),
+  status: projectLiveStatusSchema.optional(),
+  targetDate: isoDateSchema.nullable().optional(),
+});
+export type CreateSubprojectInput = z.infer<typeof createSubprojectInputSchema>;
+
+export const updateSubprojectInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    description: z.string().max(100_000),
+    /** `archived` archives the subproject; any other status restores it. */
+    status: projectStatusSchema,
+    targetDate: isoDateSchema.nullable(),
+  })
+  .partial();
+export type UpdateSubprojectInput = z.infer<typeof updateSubprojectInputSchema>;
 
 export const createTopicInputSchema = z.object({
   projectId: z.string(),
