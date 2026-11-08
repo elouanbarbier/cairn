@@ -201,8 +201,25 @@ export const overviewSchema = z.object({
 });
 export type Overview = z.infer<typeof overviewSchema>;
 
+/** Where a search found a topic. */
+export const SEARCH_FIELDS = ['ref', 'title', 'description', 'note'] as const;
+export const searchSegmentSchema = z.object({ text: z.string(), match: z.boolean() });
+export type SearchSegment = z.infer<typeof searchSegmentSchema>;
+
+export const searchHitSchema = topicSummarySchema.extend({
+  match: z.object({
+    field: z.enum(SEARCH_FIELDS),
+    /**
+     * The matched text cut into plain and matching segments: the whole title for a title match, an excerpt for a
+     * description or note match, empty for a reference match.
+     */
+    segments: z.array(searchSegmentSchema),
+  }),
+});
+export type SearchHit = z.infer<typeof searchHitSchema>;
+
 export const searchResultSchema = z.object({
-  topics: z.array(topicSummarySchema),
+  topics: z.array(searchHitSchema),
   subprojects: z.array(
     subprojectSummarySchema.extend({ projectKey: z.string(), projectName: z.string(), projectColor: colorSchema }),
   ),
@@ -253,6 +270,8 @@ export const updateProjectInputSchema = z
     status: projectStatusSchema,
     startDate: isoDateSchema.nullable(),
     targetDate: isoDateSchema.nullable(),
+    /** Position in the sidebar (fractional key); moving a project is not logged. */
+    sortOrder: z.string().min(1),
   })
   .partial();
 export type UpdateProjectInput = z.infer<typeof updateProjectInputSchema>;
@@ -272,6 +291,8 @@ export const updateSubprojectInputSchema = z
     /** `archived` archives the subproject; any other status restores it. */
     status: projectStatusSchema,
     targetDate: isoDateSchema.nullable(),
+    /** Position within the project (fractional key); moving a subproject is not logged. */
+    sortOrder: z.string().min(1),
   })
   .partial();
 export type UpdateSubprojectInput = z.infer<typeof updateSubprojectInputSchema>;
@@ -302,6 +323,22 @@ export const updateTopicInputSchema = z
   })
   .partial();
 export type UpdateTopicInput = z.infer<typeof updateTopicInputSchema>;
+
+/** The same change on several topics at once (multi-select). Labels are added or removed, not replaced. */
+export const bulkTopicPatchSchema = updateTopicInputSchema
+  .pick({ status: true, priority: true, dueDate: true, assigneeId: true, subprojectId: true })
+  .extend({
+    addLabelIds: z.array(z.string()).max(50),
+    removeLabelIds: z.array(z.string()).max(50),
+  })
+  .partial();
+export type BulkTopicPatch = z.infer<typeof bulkTopicPatchSchema>;
+
+export const bulkUpdateTopicsInputSchema = z.object({
+  refs: z.array(z.string()).min(1).max(200),
+  patch: bulkTopicPatchSchema,
+});
+export type BulkUpdateTopicsInput = z.infer<typeof bulkUpdateTopicsInputSchema>;
 
 export const createChecklistItemInputSchema = z.object({
   text: z.string().trim().min(1).max(1000),

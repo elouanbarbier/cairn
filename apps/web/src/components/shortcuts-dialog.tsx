@@ -14,6 +14,7 @@ type Item =
   | 'due'
   | 'labels'
   | 'move'
+  | 'select'
   | 'nextPrev'
   | 'openClose'
   | 'search'
@@ -30,6 +31,7 @@ const SHORTCUTS: Array<{ item: Item; keys: string[][] }> = [
   { item: 'due', keys: [['D']] },
   { item: 'labels', keys: [['L']] },
   { item: 'move', keys: [['M']] },
+  { item: 'select', keys: [['X']] },
   { item: 'nextPrev', keys: [['J'], ['K']] },
   { item: 'openClose', keys: [['↵'], ['Esc']] },
   { item: 'search', keys: [['/']] },

@@ -8,8 +8,11 @@ export interface CreateContext {
   status?: TopicStatus;
 }
 
-/** The palette can open on a sub-page acting on one topic. */
-export type PalettePage = { kind: 'root' } | { kind: 'status' | 'priority'; ref: string };
+/** Topic fields the palette can set, on one topic or on a selection. */
+export type PaletteField = 'status' | 'priority' | 'labels' | 'subproject' | 'due';
+
+/** The palette can open on a sub-page acting on one or several topics. */
+export type PalettePage = { kind: 'root' } | { kind: PaletteField; refs: string[] };
 
 interface UiState {
   paletteOpen: boolean;

@@ -1,4 +1,5 @@
 import type {
+  BulkTopicPatch,
   ChecklistItem,
   CreateProjectInput,
   CreateSubprojectInput,
@@ -69,7 +70,8 @@ export const useOverview = () => {
 };
 export const useTopics = (filter: TopicFilter, enabled = true) =>
   useQuery({ queryKey: queryKeys.topics(filter), queryFn: () => api.topics(filter), enabled });
-export const useTopic = (ref: string) => useQuery({ queryKey: queryKeys.topic(ref), queryFn: () => api.topic(ref) });
+export const useTopic = (ref: string, enabled = true) =>
+  useQuery({ queryKey: queryKeys.topic(ref), queryFn: () => api.topic(ref), enabled: enabled && Boolean(ref) });
 export const useProjectActivity = (key: string) =>
   useQuery({ queryKey: queryKeys.projectActivity(key), queryFn: () => api.projectActivity(key) });
 export const useSearch = (q: string) =>
@@ -130,6 +132,43 @@ export function useUpdateTopic() {
       toast.error(i18n.t('errors.rollback'));
     },
     onSuccess: (topic) => client.setQueryData(queryKeys.topic(topic.ref), topic),
+    onSettled: () => invalidateTopicViews(client),
+  });
+}
+
+/** Turns a bulk patch into one topic's patch: labels added and removed against what the topic has. */
+function topicPatch(topic: TopicSummary, patch: BulkTopicPatch): UpdateTopicInput {
+  const { addLabelIds, removeLabelIds, ...fields } = patch;
+  if (!addLabelIds && !removeLabelIds) return fields;
+  const current = topic.labels.map((l) => l.id);
+  const labelIds = [...new Set([...current, ...(addLabelIds ?? [])])].filter((id) => !removeLabelIds?.includes(id));
+  return { ...fields, labelIds };
+}
+
+/** The same change on several topics, optimistic like a single update and rolled back as a whole. */
+export function useBulkUpdateTopics() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ refs, patch }: { refs: string[]; patch: BulkTopicPatch }) => api.updateTopics({ refs, patch }),
+    onMutate: async ({ refs, patch }) => {
+      await client.cancelQueries({ queryKey: ['topics'] });
+      await client.cancelQueries({ queryKey: ['topic'] });
+      const labels = client.getQueryData<TopicSummary['labels']>(queryKeys.labels);
+      const lists = client.getQueriesData<TopicSummary[]>({ queryKey: ['topics'] });
+      const details = refs.map((ref) => [ref, client.getQueryData<TopicDetail>(queryKeys.topic(ref))] as const);
+      client.setQueriesData<TopicSummary[]>({ queryKey: ['topics'] }, (old) =>
+        old?.map((t) => (refs.includes(t.ref) ? applyPatch(t, topicPatch(t, patch), labels) : t)),
+      );
+      for (const [ref, detail] of details) {
+        if (detail) client.setQueryData(queryKeys.topic(ref), applyPatch(detail, topicPatch(detail, patch), labels));
+      }
+      return { lists, details };
+    },
+    onError: (_error, _vars, context) => {
+      for (const [key, data] of context?.lists ?? []) client.setQueryData(key, data);
+      for (const [ref, detail] of context?.details ?? []) if (detail) client.setQueryData(queryKeys.topic(ref), detail);
+      toast.error(i18n.t('errors.rollback'));
+    },
     onSettled: () => invalidateTopicViews(client),
   });
 }
@@ -251,6 +290,9 @@ export function useSetup() {
   });
 }
 
+const bySortOrder = (a: { sortOrder: string }, b: { sortOrder: string }) =>
+  a.sortOrder < b.sortOrder ? -1 : a.sortOrder > b.sortOrder ? 1 : 0;
+
 /** Snapshot of every cached project (lists and single projects), for rollback. */
 type ProjectCache = Array<[readonly unknown[], ProjectSummary[] | ProjectSummary | undefined]>;
 
@@ -261,10 +303,12 @@ function updateCachedProjects(client: QueryClient, update: (project: ProjectSumm
     if (Array.isArray(data)) {
       client.setQueryData(
         key,
-        data.flatMap((p) => {
-          const next = update(p);
-          return next ? [next] : [];
-        }),
+        data
+          .flatMap((p) => {
+            const next = update(p);
+            return next ? [next] : [];
+          })
+          .sort(bySortOrder),
       );
     } else {
       const next = update(data);
@@ -362,7 +406,7 @@ export function useUpdateSubproject() {
           archivedAt: archiveStamp(patch.status, current.archivedAt),
         };
         const others = (list: SubprojectSummary[]) => list.filter((s) => s.id !== id);
-        const inPlace = (list: SubprojectSummary[]) => list.map((s) => (s.id === id ? next : s));
+        const inPlace = (list: SubprojectSummary[]) => list.map((s) => (s.id === id ? next : s)).sort(bySortOrder);
         if (next.archivedAt && !current.archivedAt) {
           return { ...p, subprojects: others(p.subprojects), archivedSubprojects: [...p.archivedSubprojects, next] };
         }

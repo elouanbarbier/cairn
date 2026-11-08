@@ -149,6 +149,53 @@ describe('topics', () => {
   });
 });
 
+describe('bulk topic updates', () => {
+  it('changes several topics at once and logs each change', async () => {
+    const updated = await send<TopicSummary[]>('PATCH', '/topics', {
+      refs: ['POR-28', 'POR-30', 'AIDE-9'],
+      patch: { status: 'waiting', priority: 'high' },
+    });
+    expect(updated.map((t) => [t.ref, t.status, t.priority])).toEqual([
+      ['POR-28', 'waiting', 'high'],
+      ['POR-30', 'waiting', 'high'],
+      ['AIDE-9', 'waiting', 'high'],
+    ]);
+    const detail = await get<TopicDetail>('/topics/POR-30');
+    expect(
+      detail.activity
+        .map((a) => a.action)
+        .slice(0, 2)
+        .sort(),
+    ).toEqual(['priority_changed', 'status_changed']);
+  });
+
+  it('adds and removes labels without touching the others', async () => {
+    const labels = await get<Array<{ id: string; name: string }>>('/labels');
+    const id = (name: string) => labels.find((l) => l.name === name)?.id ?? '';
+    const before = await get<TopicDetail>('/topics/POR-24');
+    const kept = before.labels.map((l) => l.name);
+    expect(kept).toContain('Front');
+
+    const [after] = await send<TopicSummary[]>('PATCH', '/topics', {
+      refs: ['POR-24'],
+      patch: { addLabelIds: [id('Support')], removeLabelIds: [id('Front')] },
+    });
+    expect(after?.labels.map((l) => l.name).sort()).toEqual([...kept.filter((n) => n !== 'Front'), 'Support'].sort());
+  });
+
+  it('is all or nothing', async () => {
+    const before = await get<TopicDetail>('/topics/POR-28');
+    await send('PATCH', '/topics', { refs: ['POR-28', 'POR-999'], patch: { status: 'done' } }, 404);
+    const otherProjectSub = (await get<ProjectSummary>('/projects/AIDE')).subprojects[0]?.id;
+    await send('PATCH', '/topics', { refs: ['POR-28', 'AIDE-9'], patch: { subprojectId: otherProjectSub } }, 400);
+    await send('PATCH', '/topics', { refs: ['POR-28'], patch: { addLabelIds: ['nope'] } }, 400);
+    const after = await get<TopicDetail>('/topics/POR-28');
+    expect(after.status).toBe(before.status);
+    expect(after.subprojectId).toBe(before.subprojectId);
+    expect(after.labels).toEqual(before.labels);
+  });
+});
+
 describe('search', () => {
   it('matches titles without accents and references', async () => {
     const byTitle = await get<SearchResult>(`/search?q=${encodeURIComponent('etapes')}`);
@@ -157,6 +204,49 @@ describe('search', () => {
     expect(byRef.topics[0]?.ref).toBe('POR-24');
     const subs = await get<SearchResult>('/search?q=form');
     expect(subs.subprojects.map((s) => s.name)).toEqual(['Formulaires avancés']);
+  });
+
+  it('finds words in descriptions and notes, with an excerpt around them', async () => {
+    const inDescription = await get<SearchResult>('/search?q=siret');
+    const hit = inDescription.topics.find((t) => t.ref === 'POR-24');
+    expect(hit?.match.field).toBe('description');
+    expect(hit?.match.segments.filter((s) => s.match).map((s) => s.text)).toEqual(['SIRET']);
+
+    // Accents ignored, every word a prefix: "prototype valid" finds "Prototype validé" in a note.
+    const inNote = await get<SearchResult>(`/search?q=${encodeURIComponent('prototype valid')}`);
+    expect(inNote.topics.find((t) => t.ref === 'POR-24')?.match.field).toBe('note');
+  });
+
+  it('ranks the title above the description and notes', async () => {
+    const result = await get<SearchResult>('/search?q=sauvegarde');
+    expect(result.topics[0]?.match.field).toBe('title');
+    expect(result.topics[0]?.match.segments.some((s) => s.match && /sauvegarde/i.test(s.text))).toBe(true);
+  });
+
+  it('follows every write: titles, descriptions, new notes, archiving', async () => {
+    const none = await get<SearchResult>('/search?q=zeppelin');
+    expect(none.topics).toEqual([]);
+
+    await send('PATCH', '/topics/POR-12', { title: 'Harmoniser les libellés du zeppelin' });
+    await send('POST', '/topics/AIDE-5/notes', { body: 'Vu avec le pilote du zeppelin.' }, 201);
+    await send('PATCH', '/topics/OUT-3', { description: 'Un zeppelin de démonstration.' });
+    const found = await get<SearchResult>('/search?q=zeppelin');
+    expect(found.topics.map((t) => [t.ref, t.match.field])).toEqual([
+      ['POR-12', 'title'],
+      ['OUT-3', 'description'],
+      ['AIDE-5', 'note'],
+    ]);
+
+    await send('PATCH', '/projects/OUT', { status: 'archived' });
+    const afterArchive = await get<SearchResult>('/search?q=zeppelin');
+    expect(afterArchive.topics.map((t) => t.ref)).not.toContain('OUT-3');
+  });
+
+  it('reads any input as plain words', async () => {
+    for (const q of ['"foo" OR bar*', 'NEAR(a b)', '-', '()*:^']) {
+      const res = await api.request(`/search?q=${encodeURIComponent(q)}`);
+      expect(res.status, q).toBe(200);
+    }
   });
 });
 
@@ -274,6 +364,22 @@ describe('subproject writes', () => {
     const subLines = history.filter((a) => a.entityType === 'subproject');
     expect(subLines.map((a) => a.action)).toEqual(['archived', 'target_date_changed', 'renamed', 'created']);
     expect(subLines.every((a) => a.subprojectName === 'Accessibilité AA')).toBe(true);
+  });
+
+  it('reorders projects and subprojects without logging it', async () => {
+    const projects = await get<ProjectSummary[]>('/projects');
+    const [first, second, third] = projects;
+    // '0' sorts before every key the demo uses: the third project moves to the top.
+    expect(first && first.sortOrder > '0').toBe(true);
+    await send('PATCH', `/projects/${third?.key}`, { sortOrder: '0' });
+    expect((await get<ProjectSummary[]>('/projects')).map((p) => p.key)).toEqual([third?.key, first?.key, second?.key]);
+    const history = await get<ProjectActivity[]>(`/projects/${third?.key}/activity`);
+    expect(history.some((a) => a.entityType === 'project')).toBe(false);
+
+    const por = await get<ProjectSummary>('/projects/POR');
+    const last = por.subprojects.at(-1);
+    await send('PATCH', `/subprojects/${last?.id}`, { sortOrder: '0' });
+    expect((await get<ProjectSummary>('/projects/POR')).subprojects[0]?.id).toBe(last?.id);
   });
 
   it('returns 404 for an unknown project or subproject', async () => {

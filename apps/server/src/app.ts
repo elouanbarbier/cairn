@@ -1,5 +1,6 @@
 import {
   apiErrorSchema,
+  bulkUpdateTopicsInputSchema,
   checklistItemSchema,
   createChecklistItemInputSchema,
   createNoteInputSchema,
@@ -152,6 +153,14 @@ const routes = {
     request: body(createTopicInputSchema),
     responses: { 201: json(topicDetailSchema, 'Created topic'), ...errors },
   }),
+  updateTopics: createRoute({
+    method: 'patch',
+    path: '/topics',
+    tags: ['Topics'],
+    description: 'The same change on several topics, all or nothing.',
+    request: body(bulkUpdateTopicsInputSchema),
+    responses: { 200: json(z.array(topicSummarySchema), 'Updated topics'), ...errors },
+  }),
   topic: createRoute({
     method: 'get',
     path: '/topics/{ref}',
@@ -247,6 +256,10 @@ export function createApi(repo: Repo) {
     return c.json(repo.listTopics({ projectId, subprojectId: query.subproject, assigneeId }), 200);
   });
   api.openapi(routes.createTopic, (c) => c.json(repo.createTopic(c.req.valid('json')), 201));
+  api.openapi(routes.updateTopics, (c) => {
+    const { refs, patch } = c.req.valid('json');
+    return c.json(repo.updateTopics(refs, patch), 200);
+  });
   api.openapi(routes.topic, (c) => c.json(repo.getTopic(c.req.valid('param').ref), 200));
   api.openapi(routes.updateTopic, (c) => c.json(repo.updateTopic(c.req.valid('param').ref, c.req.valid('json')), 200));
   api.openapi(routes.addChecklistItem, (c) =>

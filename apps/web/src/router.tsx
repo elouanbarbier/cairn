@@ -19,6 +19,12 @@ export interface ViewSearch {
   tab?: ProjectTab;
   status?: string;
   priority?: string;
+  /** Label ids, comma-separated. */
+  label?: string;
+  /** `overdue`, `week`, `none`, comma-separated. */
+  due?: string;
+  /** User ids or `none`, comma-separated. */
+  assignee?: string;
   /** Topic shown in the side panel, e.g. `POR-24`. */
   topic?: string;
 }
@@ -41,6 +47,9 @@ function validateViewSearch(search: Record<string, unknown>): ViewSearch {
     q: str(search.q),
     status: str(search.status),
     priority: str(search.priority),
+    label: str(search.label),
+    due: str(search.due),
+    assignee: str(search.assignee),
     topic: panelTopic(search),
   };
 }

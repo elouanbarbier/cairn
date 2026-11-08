@@ -1,5 +1,6 @@
 import type {
   ApiError,
+  BulkUpdateTopicsInput,
   ChecklistItem,
   CreateChecklistItemInput,
   CreateNoteInput,
@@ -83,6 +84,7 @@ export const api = {
   },
   topic: (ref: string) => request<TopicDetail>(`/topics/${ref}`),
   createTopic: (input: CreateTopicInput) => request<TopicDetail>('/topics', { method: 'POST', json: input }),
+  updateTopics: (input: BulkUpdateTopicsInput) => request<TopicSummary[]>('/topics', { method: 'PATCH', json: input }),
   updateTopic: (ref: string, input: UpdateTopicInput) =>
     request<TopicDetail>(`/topics/${ref}`, { method: 'PATCH', json: input }),
   addChecklistItem: (ref: string, input: CreateChecklistItemInput) =>

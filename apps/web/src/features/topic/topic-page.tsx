@@ -174,10 +174,10 @@ function TopicView({ topic, panel }: { topic: TopicDetail; panel?: { onClose: ()
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => ui.openPalette({ kind: 'status', ref: topic.ref })}>
+                <DropdownMenuItem onSelect={() => ui.openPalette({ kind: 'status', refs: [topic.ref] })}>
                   {t('palette.changeStatusOf', { ref: topic.ref })}
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => ui.openPalette({ kind: 'priority', ref: topic.ref })}>
+                <DropdownMenuItem onSelect={() => ui.openPalette({ kind: 'priority', refs: [topic.ref] })}>
                   {t('palette.changePriorityOf', { ref: topic.ref })}
                 </DropdownMenuItem>
               </DropdownMenuContent>

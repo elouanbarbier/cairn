@@ -1,4 +1,21 @@
-import type { ProjectSummary } from '@cairn/shared';
+import { type ProjectSummary, sortKeyBetween } from '@cairn/shared';
+import {
+  closestCenter,
+  DndContext,
+  type DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { Link, useParams } from '@tanstack/react-router';
 import {
   ArchiveIcon,
@@ -10,7 +27,7 @@ import {
   SearchIcon,
   SlidersHorizontalIcon,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { type HTMLAttributes, type ReactNode, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Avatar, ColorSquare } from '@/components/bits';
 import { CairnLogo } from '@/components/icons';
@@ -27,7 +44,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Kbd } from '@/components/ui/kbd';
 import { type Language, setLanguage } from '@/i18n';
-import { useArchivedProjects, useMe, useProjects } from '@/lib/queries';
+import { useArchivedProjects, useMe, useProjects, useUpdateProject, useUpdateSubproject } from '@/lib/queries';
 import { type ThemeSetting, useTheme } from '@/lib/theme';
 import { useUi } from '@/lib/ui-state';
 import { cn, isMac } from '@/lib/utils';
@@ -55,6 +72,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const ui = useUi();
   const me = useMe();
   const projects = useProjects();
+  const updateProject = useUpdateProject();
   const params = useParams({ strict: false });
   const currentKey = params.key?.toUpperCase();
 
@@ -166,15 +184,24 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             {t('nav.newProject')}
           </button>
         ) : null}
-        {projects.data?.map((project) => (
-          <ProjectTree
-            key={project.id}
-            project={project}
-            expanded={expanded.includes(project.key)}
-            onToggle={() => toggle(project.key)}
-            onNavigate={onNavigate}
-          />
-        ))}
+        <SortableGroup
+          items={projects.data ?? []}
+          onMove={(project, sortOrder) => updateProject.mutate({ key: project.key, patch: { sortOrder } })}
+        >
+          {projects.data?.map((project) => (
+            <SortableItem key={project.id} id={project.id}>
+              {(dragProps) => (
+                <ProjectTree
+                  project={project}
+                  expanded={expanded.includes(project.key)}
+                  onToggle={() => toggle(project.key)}
+                  onNavigate={onNavigate}
+                  dragProps={dragProps}
+                />
+              )}
+            </SortableItem>
+          ))}
+        </SortableGroup>
         <ArchivedProjects onNavigate={onNavigate} />
       </div>
 
@@ -191,19 +218,91 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
+type DragProps = HTMLAttributes<HTMLElement>;
+
+/**
+ * Items reordered by dragging (pointer, or Space then arrows on a focused link). The new place becomes a fractional
+ * sort key between the new neighbours.
+ */
+function SortableGroup<T extends { id: string; sortOrder: string }>({
+  items,
+  onMove,
+  children,
+}: {
+  items: T[];
+  onMove: (item: T, sortOrder: string) => void;
+  children: ReactNode;
+}) {
+  const lastDrop = useRef(0);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+      keyboardCodes: { start: ['Space'], cancel: ['Escape'], end: ['Space'] },
+    }),
+  );
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    lastDrop.current = Date.now();
+    const from = items.findIndex((i) => i.id === active.id);
+    const to = over ? items.findIndex((i) => i.id === over.id) : -1;
+    const item = items[from];
+    if (!item || to < 0 || from === to) return;
+    const moved = arrayMove(items, from, to);
+    try {
+      onMove(item, sortKeyBetween(moved[to - 1]?.sortOrder ?? null, moved[to + 1]?.sortOrder ?? null));
+    } catch {
+      // Equal neighbouring keys: keep the order as it is.
+    }
+  };
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+      <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+        <div
+          className="flex flex-col gap-px"
+          onClickCapture={(event) => {
+            // A drop is not a click.
+            if (Date.now() - lastDrop.current < 150) event.preventDefault();
+          }}
+        >
+          {children}
+        </div>
+      </SortableContext>
+    </DndContext>
+  );
+}
+
+function SortableItem({ id, children }: { id: string; children: (dragProps: DragProps) => ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+    attributes: { role: 'link' },
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      className={cn('flex flex-col gap-px', isDragging && 'relative z-10 opacity-80')}
+    >
+      {children({ ...attributes, ...listeners })}
+    </div>
+  );
+}
+
 function ProjectTree({
   project,
   expanded,
   onToggle,
   onNavigate,
+  dragProps,
 }: {
   project: ProjectSummary;
   expanded: boolean;
   onToggle: () => void;
   onNavigate?: () => void;
+  dragProps: DragProps;
 }) {
   const { t } = useTranslation();
   const ui = useUi();
+  const updateSubproject = useUpdateSubproject();
   const Chevron = expanded ? ChevronDownIcon : ChevronRightIcon;
   return (
     <>
@@ -222,6 +321,7 @@ function ProjectTree({
           params={{ key: project.key }}
           activeOptions={{ exact: true, includeSearch: false }}
           activeProps={{ className: navActive, 'aria-current': 'page' }}
+          {...dragProps}
           onClick={onNavigate}
           className={cn(navItem, 'gap-2 pl-6.5')}
         >
@@ -245,22 +345,31 @@ function ProjectTree({
           <PlusIcon className="size-3.5" strokeWidth={2} />
         </Button>
       </div>
-      {expanded
-        ? project.subprojects.map((sub) => (
-            <Link
-              key={sub.id}
-              to="/p/$key/s/$subprojectId"
-              params={{ key: project.key, subprojectId: sub.id }}
-              activeOptions={{ includeSearch: false }}
-              activeProps={{ className: 'bg-sidebar-accent text-ink font-medium', 'aria-current': 'page' }}
-              onClick={onNavigate}
-              className="flex h-7 items-center rounded-md pr-2 pl-10.5 text-ink-3 text-small no-underline transition-colors duration-150 hover:bg-sidebar-accent hover:text-ink"
-            >
-              <span className="truncate">{sub.name}</span>
-              <span className="ml-auto font-normal text-ink-4 text-xs tabular-nums">{sub.openCount}</span>
-            </Link>
-          ))
-        : null}
+      {expanded ? (
+        <SortableGroup
+          items={project.subprojects}
+          onMove={(sub, sortOrder) => updateSubproject.mutate({ id: sub.id, patch: { sortOrder } })}
+        >
+          {project.subprojects.map((sub) => (
+            <SortableItem key={sub.id} id={sub.id}>
+              {(subDragProps) => (
+                <Link
+                  to="/p/$key/s/$subprojectId"
+                  params={{ key: project.key, subprojectId: sub.id }}
+                  activeOptions={{ includeSearch: false }}
+                  activeProps={{ className: 'bg-sidebar-accent text-ink font-medium', 'aria-current': 'page' }}
+                  {...subDragProps}
+                  onClick={onNavigate}
+                  className="flex h-7 items-center rounded-md pr-2 pl-10.5 text-ink-3 text-small no-underline transition-colors duration-150 hover:bg-sidebar-accent hover:text-ink"
+                >
+                  <span className="truncate">{sub.name}</span>
+                  <span className="ml-auto font-normal text-ink-4 text-xs tabular-nums">{sub.openCount}</span>
+                </Link>
+              )}
+            </SortableItem>
+          ))}
+        </SortableGroup>
+      ) : null}
     </>
   );
 }

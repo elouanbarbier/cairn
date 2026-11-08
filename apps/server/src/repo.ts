@@ -1,6 +1,7 @@
 import {
   type Activity,
   type ActivityAction,
+  type BulkTopicPatch,
   buildOverview,
   type ChecklistItem,
   type CreateChecklistItemInput,
@@ -20,7 +21,9 @@ import {
   type ProjectStatus,
   type ProjectSummary,
   parseTopicRef,
+  type SearchHit,
   type SearchResult,
+  type SearchSegment,
   type SetupInput,
   type SetupStatus,
   type SubprojectSummary,
@@ -78,6 +81,44 @@ function normalize(text: string): string {
     .normalize('NFD')
     .replace(/\p{Diacritic}/gu, '')
     .toLowerCase();
+}
+
+type SearchField = SearchHit['match']['field'];
+const SEARCH_FIELD_RANK: Record<SearchField, number> = { ref: 0, title: 1, description: 2, note: 3 };
+
+/** FTS5 query: every word as a quoted prefix, so the input can never be read as FTS syntax. */
+function ftsQuery(normalized: string): string | null {
+  const words = normalized
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+    .slice(0, 8);
+  return words.length > 0 ? words.map((w) => `"${w}"*`).join(' ') : null;
+}
+
+/** Marks around matched words in FTS5 `highlight()` and `snippet()` output (`char(1)` and `char(2)` in SQL). */
+const MATCH_START = String.fromCharCode(1);
+const MATCH_END = String.fromCharCode(2);
+
+/** Splits marked FTS5 output into plain and matching segments, without Markdown marks or line breaks. */
+function toSegments(marked: string): SearchSegment[] {
+  const segments: SearchSegment[] = [];
+  let current = '';
+  let match = false;
+  const flush = () => {
+    const text = current.replace(/[*_`#>]+/g, '').replace(/\s+/g, ' ');
+    if (text) segments.push({ text, match });
+    current = '';
+  };
+  for (const char of marked) {
+    if (char === MATCH_START || char === MATCH_END) {
+      flush();
+      match = char === MATCH_START;
+    } else {
+      current += char;
+    }
+  }
+  flush();
+  return segments;
 }
 
 type UserRow = typeof users.$inferSelect;
@@ -547,6 +588,7 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     if (input.color !== undefined && input.color.toUpperCase() !== current.color.toUpperCase())
       extra.color = input.color;
     if (input.startDate !== undefined && input.startDate !== current.startDate) extra.startDate = input.startDate;
+    if (input.sortOrder !== undefined && input.sortOrder !== current.sortOrder) extra.sortOrder = input.sortOrder;
 
     const all = { ...patch, ...extra };
     if (Object.keys(all).length > 0) {
@@ -615,10 +657,12 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     if (!current) throw new NotFoundError('Subproject not found');
     const at = now();
     const { patch, changes } = containerPatch(current, input, at);
-    if (Object.keys(patch).length > 0) {
+    const all: Partial<typeof subprojects.$inferInsert> = { ...patch };
+    if (input.sortOrder !== undefined && input.sortOrder !== current.sortOrder) all.sortOrder = input.sortOrder;
+    if (Object.keys(all).length > 0) {
       db.transaction((tx) => {
         tx.update(subprojects)
-          .set({ ...patch, updatedAt: at })
+          .set({ ...all, updatedAt: at })
           .where(eq(subprojects.id, id))
           .run();
         for (const [action, payload] of changes) logEntityActivity('subproject', id, action, payload, actorId, at);
@@ -636,34 +680,98 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     return buildOverview({ topics: allTopics, projects: active, now: now(), today, dormancyDays: dormancyDays() });
   }
 
+  /**
+   * Topics by reference (exact, then prefix) and by full text (FTS5) in titles, descriptions and notes, accents
+   * ignored, every word matched as a prefix. Better matches first (reference, title, description, note), then what
+   * moves before what is closed.
+   */
   function search(query: string, limit = 20): SearchResult {
     const q = normalize(query.trim());
     if (!q) return { topics: [], subprojects: [] };
-    const candidates = db
-      .select({ id: topics.id, title: topics.title, number: topics.number, key: projects.key, status: topics.status })
+
+    type Hit = {
+      id: string;
+      number: number;
+      status: TopicStatus;
+      field: SearchField;
+      segments: SearchSegment[];
+      rank: number;
+    };
+    const hits = new Map<string, Hit>();
+    const better = (a: Hit, b: Hit) => SEARCH_FIELD_RANK[a.field] - SEARCH_FIELD_RANK[b.field] || a.rank - b.rank;
+    const keep = (hit: Hit) => {
+      const current = hits.get(hit.id);
+      if (!current || better(hit, current) < 0) hits.set(hit.id, hit);
+    };
+
+    // References are not in the full-text index: `POR-24`, or `por-2` while typing.
+    for (const t of db
+      .select({ id: topics.id, number: topics.number, key: projects.key, status: topics.status })
       .from(topics)
       .innerJoin(projects, eq(topics.projectId, projects.id))
       .where(isNull(projects.archivedAt))
-      .all()
-      .map((t) => {
-        const ref = normalize(formatTopicRef(t.key, t.number));
-        const title = normalize(t.title);
-        const match = ref === q ? 0 : ref.startsWith(q) ? 1 : title.startsWith(q) ? 2 : title.includes(q) ? 3 : -1;
-        // Better matches first; among equal matches, what moves before what is closed.
-        return { ...t, score: match === -1 ? -1 : match * 10 + SEARCH_STATUS_RANK[t.status] };
-      })
-      .filter((t) => t.score >= 0)
-      .sort((a, b) => a.score - b.score || b.number - a.number)
+      .all()) {
+      const ref = normalize(formatTopicRef(t.key, t.number));
+      if (ref === q || ref.startsWith(q)) {
+        keep({ ...t, field: 'ref', segments: [], rank: ref === q ? -2 : -1 });
+      }
+    }
+
+    const match = ftsQuery(q);
+    if (match) {
+      const rows = db.all<{
+        id: string;
+        number: number;
+        status: TopicStatus;
+        field: 'title' | 'description' | 'note';
+        rank: number;
+        highlighted: string;
+        excerpt: string;
+      }>(sql`
+        SELECT t.id AS id, t.number AS number, t.status AS status, search_index.field AS field,
+          bm25(search_index) AS rank,
+          highlight(search_index, 0, char(1), char(2)) AS highlighted,
+          snippet(search_index, 0, char(1), char(2), '…', 12) AS excerpt
+        FROM search_index
+        JOIN topics t ON t.id = search_index.topic_id
+        JOIN projects p ON p.id = t.project_id
+        WHERE search_index MATCH ${match} AND p.archived_at IS NULL
+        ORDER BY rank
+        LIMIT 500`);
+      for (const row of rows) {
+        keep({
+          id: row.id,
+          number: row.number,
+          status: row.status,
+          field: row.field,
+          rank: row.rank,
+          segments: toSegments(row.field === 'title' ? row.highlighted : row.excerpt),
+        });
+      }
+    }
+
+    const ranked = [...hits.values()]
+      .sort(
+        (a, b) =>
+          SEARCH_FIELD_RANK[a.field] * 10 +
+            SEARCH_STATUS_RANK[a.status] -
+            (SEARCH_FIELD_RANK[b.field] * 10 + SEARCH_STATUS_RANK[b.status]) ||
+          a.rank - b.rank ||
+          b.number - a.number,
+      )
       .slice(0, limit);
 
-    const ids = candidates.map((c) => c.id);
-    const order = new Map(ids.map((id, i) => [id, i]));
+    const byId = new Map(ranked.map((h) => [h.id, h]));
+    const order = new Map(ranked.map((h, i) => [h.id, i]));
     const topicResults =
-      ids.length === 0
+      ranked.length === 0
         ? []
-        : hydrate(selectTopics(inArray(topics.id, ids))).sort(
-            (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
-          );
+        : hydrate(selectTopics(inArray(topics.id, [...byId.keys()])))
+            .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+            .map((topic) => {
+              const hit = byId.get(topic.id);
+              return { ...topic, match: { field: hit?.field ?? 'title', segments: hit?.segments ?? [] } };
+            });
 
     const subprojectResults = listProjects().flatMap((p) =>
       p.subprojects
@@ -824,6 +932,10 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
           .all()
           .map((l) => l.id);
         const next = [...new Set(input.labelIds)];
+        if (next.length > 0) {
+          const known = tx.select({ id: labels.id }).from(labels).where(inArray(labels.id, next)).all();
+          if (known.length !== next.length) throw new ValidationError('Unknown label');
+        }
         const added = next.filter((id) => !before.includes(id));
         const removed = before.filter((id) => !next.includes(id));
         if (added.length > 0 || removed.length > 0) {
@@ -847,6 +959,36 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     });
 
     return getTopic(current.id);
+  }
+
+  /** One change on several topics, all or nothing: any refused topic rolls the whole batch back. */
+  function updateTopics(
+    refs: readonly string[],
+    patch: BulkTopicPatch,
+    actorId: string | null = currentUser().id,
+  ): TopicSummary[] {
+    const { addLabelIds = [], removeLabelIds = [], ...fields } = patch;
+    const ids = db.transaction(() =>
+      [...new Set(refs)].map((ref) => {
+        const row = findTopicRow(ref);
+        const input: UpdateTopicInput = { ...fields };
+        if (addLabelIds.length > 0 || removeLabelIds.length > 0) {
+          const current = db
+            .select({ id: topicLabels.labelId })
+            .from(topicLabels)
+            .where(eq(topicLabels.topicId, row.topic.id))
+            .all()
+            .map((l) => l.id);
+          input.labelIds = [...new Set([...current, ...addLabelIds])].filter((id) => !removeLabelIds.includes(id));
+        }
+        updateTopic(row.topic.id, input, actorId);
+        return row.topic.id;
+      }),
+    );
+    const order = new Map(ids.map((id, i) => [id, i]));
+    return hydrate(selectTopics(inArray(topics.id, ids))).sort(
+      (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
+    );
   }
 
   function addChecklistItem(
@@ -936,6 +1078,7 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     me,
     createTopic,
     updateTopic,
+    updateTopics,
     addChecklistItem,
     updateChecklistItem,
     addNote,

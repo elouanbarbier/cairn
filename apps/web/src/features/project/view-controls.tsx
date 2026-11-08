@@ -1,7 +1,9 @@
 import { TOPIC_PRIORITIES, TOPIC_STATUSES } from '@cairn/shared';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { ChevronDownIcon, KanbanSquareIcon, ListFilterIcon, ListIcon, XIcon } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Avatar } from '@/components/bits';
 import { PriorityIcon, StatusIcon } from '@/components/icons';
 import { Button } from '@/components/ui/button';
 import {
@@ -9,15 +11,18 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useLabels, useUsers } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import type { GroupBy, ListView, ViewSearch } from '@/router';
-import { hasFilters, type ParsedFilters } from './filters';
+import { DUE_FILTERS, filterCount, type ParsedFilters, UNASSIGNED } from './filters';
 
 /** Search-param updater for the current route. */
 export function useSearchUpdater() {
@@ -54,59 +59,131 @@ export function ViewSwitch({ view }: { view: ListView }) {
   );
 }
 
+const NO_FILTERS: Partial<ViewSearch> = {
+  status: undefined,
+  priority: undefined,
+  label: undefined,
+  due: undefined,
+  assignee: undefined,
+  q: undefined,
+};
+
+/** Filters of the cadrage: status, priority, label, due date and assignee, each in its own submenu. */
 export function FilterMenu({ filters }: { filters: ParsedFilters }) {
   const { t } = useTranslation();
   const update = useSearchUpdater();
-  const active = hasFilters(filters);
-  const toggle = <T extends string>(list: T[], value: T) =>
+  const labels = useLabels();
+  const users = useUsers();
+  const count = filterCount(filters);
+  const toggle = <T extends string>(list: readonly T[], value: T) =>
     (list.includes(value) ? list.filter((v) => v !== value) : [...list, value]).join(',') || undefined;
+  const keepOpen = (event: Event) => event.preventDefault();
+
+  const sub = (label: string, active: number, children: ReactNode) => (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        {label}
+        {active > 0 ? <span className="text-brand text-xs tabular-nums">{active}</span> : null}
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>{children}</DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
 
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="dashed" className={cn(active && 'border-brand border-solid text-brand')}>
+          <Button variant="dashed" className={cn(count > 0 && 'border-brand border-solid text-brand')}>
             <ListFilterIcon className="size-3.5" strokeWidth={1.9} />
             {t('views.filter')}
-            {active ? (
-              <span className="tabular-nums">
-                · {filters.statuses.length + filters.priorities.length + (filters.q ? 1 : 0)}
-              </span>
-            ) : null}
+            {count > 0 ? <span className="tabular-nums">· {count}</span> : null}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          <DropdownMenuLabel>{t('topic.props.status')}</DropdownMenuLabel>
-          {TOPIC_STATUSES.map((status) => (
+          {sub(
+            t('topic.props.status'),
+            filters.statuses.length,
+            TOPIC_STATUSES.map((status) => (
+              <DropdownMenuCheckboxItem
+                key={status}
+                checked={filters.statuses.includes(status)}
+                onSelect={keepOpen}
+                onCheckedChange={() => update({ status: toggle(filters.statuses, status) })}
+              >
+                <StatusIcon status={status} />
+                {t(`status.${status}`)}
+              </DropdownMenuCheckboxItem>
+            )),
+          )}
+          {sub(
+            t('topic.props.priority'),
+            filters.priorities.length,
+            [...TOPIC_PRIORITIES].reverse().map((priority) => (
+              <DropdownMenuCheckboxItem
+                key={priority}
+                checked={filters.priorities.includes(priority)}
+                onSelect={keepOpen}
+                onCheckedChange={() => update({ priority: toggle(filters.priorities, priority) })}
+              >
+                <PriorityIcon priority={priority} />
+                {t(`priority.${priority}`)}
+              </DropdownMenuCheckboxItem>
+            )),
+          )}
+          {sub(
+            t('topic.props.labels'),
+            filters.labels.length,
+            (labels.data ?? []).map((label) => (
+              <DropdownMenuCheckboxItem
+                key={label.id}
+                checked={filters.labels.includes(label.id)}
+                onSelect={keepOpen}
+                onCheckedChange={() => update({ label: toggle(filters.labels, label.id) })}
+              >
+                <span aria-hidden className="size-2 rounded-full" style={{ background: label.color }} />
+                {label.name}
+              </DropdownMenuCheckboxItem>
+            )),
+          )}
+          {sub(
+            t('topic.props.due'),
+            filters.due.length,
+            DUE_FILTERS.map((due) => (
+              <DropdownMenuCheckboxItem
+                key={due}
+                checked={filters.due.includes(due)}
+                onSelect={keepOpen}
+                onCheckedChange={() => update({ due: toggle(filters.due, due) })}
+              >
+                {t(`views.dueFilter.${due}`)}
+              </DropdownMenuCheckboxItem>
+            )),
+          )}
+          {sub(t('topic.props.assignee'), filters.assignees.length, [
+            ...(users.data ?? []).map((user) => (
+              <DropdownMenuCheckboxItem
+                key={user.id}
+                checked={filters.assignees.includes(user.id)}
+                onSelect={keepOpen}
+                onCheckedChange={() => update({ assignee: toggle(filters.assignees, user.id) })}
+              >
+                <Avatar user={user} size={18} />
+                {user.name}
+              </DropdownMenuCheckboxItem>
+            )),
             <DropdownMenuCheckboxItem
-              key={status}
-              checked={filters.statuses.includes(status)}
-              onSelect={(e) => e.preventDefault()}
-              onCheckedChange={() => update({ status: toggle(filters.statuses, status) })}
+              key={UNASSIGNED}
+              checked={filters.assignees.includes(UNASSIGNED)}
+              onSelect={keepOpen}
+              onCheckedChange={() => update({ assignee: toggle(filters.assignees, UNASSIGNED) })}
             >
-              <StatusIcon status={status} />
-              {t(`status.${status}`)}
-            </DropdownMenuCheckboxItem>
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel>{t('topic.props.priority')}</DropdownMenuLabel>
-          {[...TOPIC_PRIORITIES].reverse().map((priority) => (
-            <DropdownMenuCheckboxItem
-              key={priority}
-              checked={filters.priorities.includes(priority)}
-              onSelect={(e) => e.preventDefault()}
-              onCheckedChange={() => update({ priority: toggle(filters.priorities, priority) })}
-            >
-              <PriorityIcon priority={priority} />
-              {t(`priority.${priority}`)}
-            </DropdownMenuCheckboxItem>
-          ))}
-          {active ? (
+              {t('topic.unassigned')}
+            </DropdownMenuCheckboxItem>,
+          ])}
+          {count > 0 ? (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => update({ status: undefined, priority: undefined, q: undefined })}>
-                {t('views.clearFilters')}
-              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => update(NO_FILTERS)}>{t('views.clearFilters')}</DropdownMenuItem>
             </>
           ) : null}
         </DropdownMenuContent>
