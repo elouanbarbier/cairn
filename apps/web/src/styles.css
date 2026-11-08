@@ -1,0 +1,374 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource/jetbrains-mono/500.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Design tokens. Components only use these variables (through the Tailwind
+ * theme below), never raw colors. Zinc neutrals, one indigo accent, and
+ * colors that always carry meaning (status, priority, deadlines, dormancy).
+ */
+:root {
+  /* Native controls (checkboxes, date pickers, scrollbars) follow the app theme, not the OS. */
+  color-scheme: light;
+
+  /* Surfaces */
+  --background: #ffffff;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-foreground: #18181b;
+  --popover: #ffffff;
+  --popover-foreground: #18181b;
+  --popover-border: #e4e4e7;
+  --popover-footer: #fafafa;
+  --subtle: #fafafa;
+  --aside: #fcfcfc;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  --accent: #ededf0;
+  --accent-foreground: #18181b;
+  --row-active: #f7f7f9;
+  --overlay: rgb(24 24 27 / 0.28);
+
+  /* Text, strongest to faintest */
+  --ink: #18181b;
+  --ink-body: #27272a;
+  --ink-2: #3f3f46;
+  --ink-3: #52525b;
+  --ink-4: #71717a;
+  --ink-5: #a1a1aa;
+
+  /* Lines */
+  --border: #e4e4e7;
+  --line: #f1f1f3;
+  --input: #d4d4d8;
+
+  /* Accent (indigo) */
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-foreground: #ffffff;
+  --brand: #4f46e5;
+  --brand-soft: #eef2ff;
+  --highlight: #4338ca;
+  --ring: #4f46e5;
+
+  /* Sidebar */
+  --sidebar: #fafafa;
+  --sidebar-accent: #ededf0;
+  --sidebar-border: #e4e4e7;
+
+  /* Keyboard hints */
+  --kbd: #ffffff;
+  --kbd-border: #e4e4e7;
+  --kbd-solid: #f4f4f5;
+  --kbd-foreground: #52525b;
+  --kbd-inverse: rgb(255 255 255 / 0.18);
+
+  /* Statuses */
+  --status-backlog: #a1a1aa;
+  --status-todo: #a1a1aa;
+  --status-in-progress: #d97706;
+  --status-waiting: #ea580c;
+  --status-done: #16a34a;
+  --status-cancelled: #a1a1aa;
+  --status-mark: #ffffff;
+
+  /* Priorities */
+  --priority-on: #52525b;
+  --priority-off: #d4d4d8;
+  --priority-none: #e4e4e7;
+  --priority-urgent: #dc2626;
+  --priority-urgent-mark: #ffffff;
+
+  /* Meaningful states */
+  --danger: #b91c1c;
+  --danger-strong: #7f1d1d;
+  --danger-soft: #fef2f2;
+  --danger-border: #fecaca;
+  --danger-line: #fee2e2;
+  --dormant: #c2410c;
+  --dormant-soft: #fff7ed;
+  --success: #15803d;
+  --success-soft: #f0fdf4;
+  --success-dot: #16a34a;
+
+  /* Avatars */
+  --avatar: #e0e7ff;
+  --avatar-foreground: #3730a3;
+
+  /* Kanban */
+  --column: #f7f7f8;
+  --column-active: #f3f3ff;
+  --column-active-border: #c7d2fe;
+
+  /* Elevation (floating elements only) */
+  --shadow-card: 0 1px 1px rgb(24 24 27 / 0.04);
+  --shadow-segment: 0 1px 2px rgb(24 24 27 / 0.08);
+  --shadow-drag: 0 14px 30px rgb(24 24 27 / 0.16), 0 2px 6px rgb(24 24 27 / 0.08);
+  --shadow-float: 0 24px 64px rgb(24 24 27 / 0.18), 0 0 0 1px rgb(24 24 27 / 0.02);
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #0e0e10;
+  --foreground: #ededef;
+  --card: #141416;
+  --card-foreground: #ededef;
+  --popover: #18181b;
+  --popover-foreground: #ededef;
+  --popover-border: #2e2e33;
+  --popover-footer: #151518;
+  --subtle: #151518;
+  --aside: #111113;
+  --muted: #1c1c1f;
+  --muted-foreground: #8b8b94;
+  --accent: #1f1f23;
+  --accent-foreground: #ededef;
+  --row-active: #1a1a1e;
+  --overlay: rgb(5 5 7 / 0.62);
+
+  --ink: #ededef;
+  --ink-body: #e4e4e7;
+  --ink-2: #d4d4d8;
+  --ink-3: #a1a1aa;
+  --ink-4: #8b8b94;
+  --ink-5: #71717a;
+
+  --border: #26262b;
+  --line: #1e1e22;
+  --input: #333338;
+
+  --primary: #4f46e5;
+  --primary-hover: #5b54ea;
+  --primary-foreground: #ffffff;
+  --brand: #818cf8;
+  --brand-soft: #1e1b4b;
+  --highlight: #c7d2fe;
+  --ring: #818cf8;
+
+  --sidebar: #121214;
+  --sidebar-accent: #1f1f23;
+  --sidebar-border: #232327;
+
+  --kbd: #18181b;
+  --kbd-border: #333338;
+  --kbd-solid: #2a2a2f;
+  --kbd-foreground: #d4d4d8;
+
+  --status-backlog: #71717a;
+  --status-todo: #71717a;
+  --status-in-progress: #f59e0b;
+  --status-waiting: #f97316;
+  --status-done: #22c55e;
+  --status-cancelled: #71717a;
+  --status-mark: #0e0e10;
+
+  --priority-on: #a1a1aa;
+  --priority-off: #3f3f46;
+  --priority-none: #2e2e33;
+  --priority-urgent: #ef4444;
+  --priority-urgent-mark: #ffffff;
+
+  --danger: #f87171;
+  --danger-strong: #fca5a5;
+  --danger-soft: #1a1012;
+  --danger-border: #3b1d1d;
+  --danger-line: #2a1416;
+  --dormant: #fb923c;
+  --dormant-soft: #2a1a0e;
+  --success: #4ade80;
+  --success-soft: #0f2417;
+  --success-dot: #22c55e;
+
+  --avatar: #312e81;
+  --avatar-foreground: #c7d2fe;
+
+  --column: #141416;
+  --column-active: #1a1a2e;
+  --column-active-border: #3730a3;
+
+  --shadow-card: 0 1px 1px rgb(0 0 0 / 0.3);
+  --shadow-segment: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-drag: 0 14px 30px rgb(0 0 0 / 0.5), 0 2px 6px rgb(0 0 0 / 0.3);
+  --shadow-float: 0 24px 64px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.02);
+}
+
+@theme inline {
+  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+
+  /* Dense type scale: 13 px base. */
+  --text-micro: 11px;
+  --text-micro--line-height: 18px;
+  --text-caption: 11.5px;
+  --text-caption--line-height: 1.45;
+  --text-xs: 12px;
+  --text-xs--line-height: 1.45;
+  --text-small: 12.5px;
+  --text-small--line-height: 1.45;
+  --text-sm: 13px;
+  --text-sm--line-height: 1.45;
+  --text-base: 14px;
+  --text-base--line-height: 1.6;
+  --text-lg: 16px;
+  --text-lg--line-height: 1.4;
+  --text-xl: 20px;
+  --text-xl--line-height: 1.3;
+  --text-2xl: 22px;
+  --text-2xl--line-height: 1.3;
+  --text-3xl: 24px;
+  --text-3xl--line-height: 1.25;
+  --text-stat: 26px;
+  --text-stat--line-height: 1.2;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover-border: var(--popover-border);
+  --color-popover-footer: var(--popover-footer);
+  --color-subtle: var(--subtle);
+  --color-aside: var(--aside);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-row-active: var(--row-active);
+  --color-overlay: var(--overlay);
+
+  --color-ink: var(--ink);
+  --color-ink-body: var(--ink-body);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+  --color-ink-5: var(--ink-5);
+
+  --color-border: var(--border);
+  --color-line: var(--line);
+  --color-input: var(--input);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-highlight: var(--highlight);
+  --color-ring: var(--ring);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-border: var(--sidebar-border);
+
+  --color-kbd: var(--kbd);
+  --color-kbd-border: var(--kbd-border);
+  --color-kbd-solid: var(--kbd-solid);
+  --color-kbd-foreground: var(--kbd-foreground);
+  --color-kbd-inverse: var(--kbd-inverse);
+
+  --color-status-backlog: var(--status-backlog);
+  --color-status-todo: var(--status-todo);
+  --color-status-in-progress: var(--status-in-progress);
+  --color-status-waiting: var(--status-waiting);
+  --color-status-done: var(--status-done);
+  --color-status-cancelled: var(--status-cancelled);
+  --color-status-mark: var(--status-mark);
+
+  --color-priority-on: var(--priority-on);
+  --color-priority-off: var(--priority-off);
+  --color-priority-none: var(--priority-none);
+  --color-priority-urgent: var(--priority-urgent);
+  --color-priority-urgent-mark: var(--priority-urgent-mark);
+
+  --color-danger: var(--danger);
+  --color-danger-strong: var(--danger-strong);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-border: var(--danger-border);
+  --color-danger-line: var(--danger-line);
+  --color-dormant: var(--dormant);
+  --color-dormant-soft: var(--dormant-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-dot: var(--success-dot);
+
+  --color-avatar: var(--avatar);
+  --color-avatar-foreground: var(--avatar-foreground);
+
+  --color-column: var(--column);
+  --color-column-active: var(--column-active);
+  --color-column-active-border: var(--column-active-border);
+
+  --shadow-card: var(--shadow-card);
+  --shadow-segment: var(--shadow-segment);
+  --shadow-drag: var(--shadow-drag);
+  --shadow-float: var(--shadow-float);
+
+  --animate-overlay-in: overlay-in 160ms ease-out;
+  --animate-dialog-in: dialog-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-menu-in: menu-in 120ms ease-out;
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+}
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.45;
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  ::selection {
+    background: var(--brand-soft);
+  }
+}
+
+/* Respect reduced motion everywhere, including third-party components. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: must win over every component transition */
+    animation-duration: 0.01ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: must win over every component transition */
+    transition-duration: 0.01ms !important;
+  }
+}

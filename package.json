@@ -1,0 +1,25 @@
+{
+  "name": "cairn",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.18.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "build": "pnpm -r build",
+    "start": "pnpm --filter @cairn/server start",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "db:generate": "pnpm --filter @cairn/server db:generate",
+    "db:seed": "pnpm --filter @cairn/server db:seed"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}
