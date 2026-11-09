@@ -3,6 +3,7 @@ import { createRootRoute, createRoute, createRouter, Link } from '@tanstack/reac
 import { useTranslation } from 'react-i18next';
 import { EmptyState } from '@/components/bits';
 import { AppShell } from '@/components/layout/app-shell';
+import { LinkPage } from '@/features/access/link-page';
 import { MyTopicsPage } from '@/features/my-topics/my-topics-page';
 import { OverviewPage } from '@/features/overview/overview-page';
 import { ProjectPage, SubprojectPage } from '@/features/project/project-page';
@@ -91,6 +92,13 @@ const myTopicsRoute = createRoute({
   component: MyTopicsPage,
 });
 
+/** Invitation and reset links, shown without the workspace around them. */
+export const linkRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/lien/$token',
+  component: LinkPage,
+});
+
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/parametres',
@@ -122,6 +130,7 @@ const routeTree = rootRoute.addChildren([
   overviewRoute,
   myTopicsRoute,
   settingsRoute,
+  linkRoute,
   projectRoute,
   subprojectRoute,
   topicRoute,

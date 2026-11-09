@@ -1,23 +1,33 @@
-import { Outlet, useNavigate } from '@tanstack/react-router';
+import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import { useTranslation } from 'react-i18next';
 import { CommandPalette } from '@/components/command-palette';
 import { CreateProjectDialog, CreateSubprojectDialog } from '@/components/create-project-dialog';
 import { CreateTopicDialog } from '@/components/create-topic-dialog';
 import { ShortcutsDialog } from '@/components/shortcuts-dialog';
-import { SetupPage } from '@/features/setup/setup-page';
+import { LoginPage } from '@/features/access/login-page';
+import { SetupPage } from '@/features/access/setup-page';
 import { TopicPanel } from '@/features/topic/topic-page';
+import { isUnauthorized } from '@/lib/api';
 import { useHotkeys } from '@/lib/hotkeys';
-import { useProjects, useSetupStatus } from '@/lib/queries';
+import { useMe, useProjects, useSetupStatus } from '@/lib/queries';
 import { useTopicPanel } from '@/lib/topic-panel';
 import { useUi } from '@/lib/ui-state';
 import { Sidebar } from './sidebar';
 
-/** An empty workspace first asks for its first account; then the app itself. */
+/**
+ * Before the workspace: invitation links stand alone; a workspace without administrator password asks for one;
+ * without a session, the sign-in page.
+ */
 export function AppShell() {
   const setup = useSetupStatus();
+  const onLink = useRouterState({ select: (s) => s.location.pathname.startsWith('/lien/') });
+  const me = useMe(setup.data?.required === false && !onLink);
+  if (onLink) return <Outlet />;
   if (setup.isPending) return null;
-  if (setup.data?.required) return <SetupPage />;
+  if (setup.data?.required && setup.data.mode) return <SetupPage mode={setup.data.mode} />;
+  if (me.isError && isUnauthorized(me.error)) return <LoginPage demo={setup.data?.demo ?? false} />;
+  if (!me.data) return null;
   return <Workspace />;
 }
 

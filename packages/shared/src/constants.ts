@@ -63,7 +63,26 @@ export const PROJECT_COLORS = [
 export const USER_ROLES = ['admin', 'member'] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
+/** API tokens read only, or read and write (everything their owner can do). */
+export const TOKEN_SCOPES = ['read', 'write'] as const;
+export type TokenScope = (typeof TOKEN_SCOPES)[number];
+
+/** One-time links an admin hands over: to join the workspace, or to choose a new password. */
+export const USER_LINK_KINDS = ['invite', 'reset'] as const;
+export type UserLinkKind = (typeof USER_LINK_KINDS)[number];
+
+/** Accounts of the demo data set (admin, then member), all with this password. Never used outside the demo. */
+export const DEMO_ACCOUNTS = ['elouan@example.com', 'camille@example.com'] as const;
+export const DEMO_PASSWORD = 'cairn-demo';
+
+export const SESSION_DAYS = 30;
+export const USER_LINK_DAYS = 7;
+export const PASSWORD_MIN_LENGTH = 10;
+
 export const DEFAULT_DORMANCY_DAYS = 14;
+/** The overview sends the first topics of each list, with the list's total: in progress per project, then others. */
+export const OVERVIEW_GROUP_LIMIT = 10;
+export const OVERVIEW_LIST_LIMIT = 20;
 export const UPCOMING_WINDOW_DAYS = 7;
 export const COMPLETED_WINDOW_DAYS = 7;
 

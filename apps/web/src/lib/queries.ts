@@ -1,15 +1,21 @@
 import type {
   BulkTopicPatch,
+  ChangePasswordInput,
   ChecklistItem,
+  CreateAccountInput,
   CreateProjectInput,
   CreateSubprojectInput,
+  CreateTokenInput,
   CreateTopicInput,
+  LoginInput,
   ProjectSummary,
   SetupInput,
   SubprojectSummary,
   TopicDetail,
   TopicSummary,
+  UpdateAccountInput,
   UpdateChecklistItemInput,
+  UpdateMeInput,
   UpdateProjectInput,
   UpdateSettingsInput,
   UpdateSubprojectInput,
@@ -25,13 +31,17 @@ import { todayISO } from './format.ts';
 export const queryKeys = {
   setup: ['setup'] as const,
   settings: ['settings'] as const,
+  tokens: ['tokens'] as const,
+  accounts: ['accounts'] as const,
+  backups: ['backups'] as const,
+  link: (token: string) => ['link', token] as const,
   me: ['me'] as const,
   users: ['users'] as const,
   labels: ['labels'] as const,
   projects: ['projects'] as const,
   archivedProjects: ['projects', 'archived'] as const,
   project: (key: string) => ['projects', 'one', key] as const,
-  overview: (today: string) => ['overview', today] as const,
+  overview: (today: string, exclude: readonly string[]) => ['overview', today, exclude] as const,
   topics: (filter: TopicFilter) => ['topics', filter] as const,
   topic: (ref: string) => ['topic', ref] as const,
   projectActivity: (key: string) => ['project-activity', key] as const,
@@ -40,7 +50,8 @@ export const queryKeys = {
 
 export const useSetupStatus = () =>
   useQuery({ queryKey: queryKeys.setup, queryFn: api.setupStatus, staleTime: Number.POSITIVE_INFINITY });
-export const useMe = () => useQuery({ queryKey: queryKeys.me, queryFn: api.me });
+export const useMe = (enabled = true) =>
+  useQuery({ queryKey: queryKeys.me, queryFn: api.me, enabled, retry: false, refetchInterval: false });
 export const useSettings = () => useQuery({ queryKey: queryKeys.settings, queryFn: api.settings });
 
 /** Settings change derived views (the dormancy threshold moves the dormant list and badges). */
@@ -78,9 +89,10 @@ export function useProject(key: string) {
     refetch: () => void (projects.isError ? projects.refetch() : single.refetch()),
   };
 }
-export const useOverview = () => {
+/** The home page, without the projects the viewer filtered out. */
+export const useOverview = (exclude: readonly string[] = []) => {
   const today = todayISO();
-  return useQuery({ queryKey: queryKeys.overview(today), queryFn: () => api.overview(today) });
+  return useQuery({ queryKey: queryKeys.overview(today, exclude), queryFn: () => api.overview(today, exclude) });
 };
 export const useTopics = (filter: TopicFilter, enabled = true) =>
   useQuery({ queryKey: queryKeys.topics(filter), queryFn: () => api.topics(filter), enabled });
@@ -440,5 +452,127 @@ export function useUpdateSubproject() {
       rollbackToast(error);
     },
     onSettled: () => invalidateTopicViews(client),
+  });
+}
+
+/* ---------- Access, account, tokens and users ---------- */
+
+/**
+ * After signing in or out, every cached answer belonged to someone else: drop them all and fetch again what is on
+ * screen (clearing the cache alone would leave the screen as it was).
+ */
+export function restart(client: QueryClient) {
+  void client.resetQueries();
+}
+
+export function useLogin() {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: (input: LoginInput) => api.login(input), onSuccess: () => restart(client) });
+}
+
+export function useLogout() {
+  const client = useQueryClient();
+  return useMutation({ mutationFn: () => api.logout(), onSettled: () => restart(client) });
+}
+
+export function useLogoutOthers() {
+  return useMutation({ mutationFn: () => api.logoutOthers(), onError: () => toast.error(i18n.t('errors.rollback')) });
+}
+
+export const useLinkInfo = (token: string) =>
+  useQuery({ queryKey: queryKeys.link(token), queryFn: () => api.linkInfo(token), retry: false, staleTime: Infinity });
+
+export function useRedeemLink(token: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (password: string) => api.redeemLink(token, password),
+    onSuccess: () => restart(client),
+  });
+}
+
+export function useUpdateMe() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateMeInput) => api.updateMe(input),
+    onSuccess: () => invalidateTopicViews(client),
+  });
+}
+
+export function useChangePassword() {
+  return useMutation({ mutationFn: (input: ChangePasswordInput) => api.changePassword(input) });
+}
+
+export const useTokens = () => useQuery({ queryKey: queryKeys.tokens, queryFn: api.tokens });
+
+export function useCreateToken() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateTokenInput) => api.createToken(input),
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.tokens }),
+    onError: () => toast.error(i18n.t('errors.rollback')),
+  });
+}
+
+export function useRevokeToken() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.revokeToken(id),
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.tokens }),
+    onError: () => toast.error(i18n.t('errors.rollback')),
+  });
+}
+
+export const useAccounts = (enabled = true) =>
+  useQuery({ queryKey: queryKeys.accounts, queryFn: api.accounts, enabled });
+
+/** Accounts change who can be assigned: refresh the user list too. */
+function invalidateAccounts(client: QueryClient) {
+  void client.invalidateQueries({ queryKey: queryKeys.accounts });
+  void client.invalidateQueries({ queryKey: queryKeys.users });
+}
+
+export function useCreateAccount() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateAccountInput) => api.createAccount(input),
+    onSuccess: () => invalidateAccounts(client),
+  });
+}
+
+export function useUpdateAccount() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateAccountInput }) => api.updateAccount(id, input),
+    onSuccess: () => invalidateAccounts(client),
+    onError: (error) => toast.error(error instanceof Error ? error.message : i18n.t('errors.rollback')),
+  });
+}
+
+export function useAccountLink() {
+  return useMutation({
+    mutationFn: (id: string) => api.accountLink(id),
+    onError: () => toast.error(i18n.t('errors.rollback')),
+  });
+}
+
+/* ---------- Data ---------- */
+
+export const useBackups = () => useQuery({ queryKey: queryKeys.backups, queryFn: api.backups });
+
+export function useRunBackup() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.runBackup(),
+    onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.backups }),
+    onError: () => toast.error(i18n.t('errors.rollback')),
+  });
+}
+
+/** An import fills the workspace: everything on screen is out of date. */
+export function useImportWorkspace() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (doc: unknown) => api.importWorkspace(doc),
+    onSuccess: () => void client.invalidateQueries(),
   });
 }

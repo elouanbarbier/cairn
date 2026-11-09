@@ -1,10 +1,13 @@
 import { z } from 'zod';
 import {
+  PASSWORD_MIN_LENGTH,
   PROJECT_KEY_PATTERN,
   PROJECT_LIVE_STATUSES,
   PROJECT_STATUSES,
+  TOKEN_SCOPES,
   TOPIC_PRIORITIES,
   TOPIC_STATUSES,
+  USER_LINK_KINDS,
   USER_ROLES,
 } from './constants.ts';
 
@@ -185,11 +188,25 @@ export type ProjectRef = z.infer<typeof projectRefSchema>;
 export const recentActivitySchema = projectActivitySchema.extend({ project: projectRefSchema });
 export type RecentActivity = z.infer<typeof recentActivitySchema>;
 
+/**
+ * The home page. Lists hold their first topics only (`OVERVIEW_GROUP_LIMIT` in progress per project,
+ * `OVERVIEW_LIST_LIMIT` otherwise); `totals` and each group's `total` give the full counts.
+ */
 export const overviewSchema = z.object({
   today: isoDateSchema,
   dormancyDays: z.number().int(),
   activeProjectCount: z.number().int(),
-  inProgress: z.array(z.object({ project: projectRefSchema, topics: z.array(topicSummarySchema) })),
+  totals: z.object({
+    inProgress: z.number().int(),
+    waiting: z.number().int(),
+    overdue: z.number().int(),
+    upcoming: z.number().int(),
+    dormant: z.number().int(),
+    completedThisWeek: z.number().int(),
+  }),
+  inProgress: z.array(
+    z.object({ project: projectRefSchema, total: z.number().int(), topics: z.array(topicSummarySchema) }),
+  ),
   waiting: z.array(topicSummarySchema),
   overdue: z.array(topicSummarySchema),
   upcoming: z.array(topicSummarySchema),
@@ -250,17 +267,223 @@ export const updateSettingsInputSchema = workspaceSettingsSchema.partial();
 export type UpdateSettingsInput = z.infer<typeof updateSettingsInputSchema>;
 
 /** Whether the workspace still needs its first account. */
-export const setupStatusSchema = z.object({ required: z.boolean() });
+export const setupStatusSchema = z.object({
+  required: z.boolean(),
+  /**
+   * `create`: no account yet, the first one becomes admin. `claim`: accounts exist from before sign-in (J4) and the
+   * administrator chooses a password.
+   */
+  mode: z.enum(['create', 'claim']).nullable(),
+  /** The demo data set is loaded: the sign-in page can show its accounts. */
+  demo: z.boolean(),
+});
 export type SetupStatus = z.infer<typeof setupStatusSchema>;
+
+/* ---------- Accounts and access ---------- */
+
+export const emailSchema = z.string().trim().toLowerCase().pipe(z.email());
+export const newPasswordSchema = z
+  .string()
+  .min(PASSWORD_MIN_LENGTH, `At least ${PASSWORD_MIN_LENGTH} characters`)
+  .max(200);
+
+/** An account as administrators see it. */
+export const accountSchema = userSchema.extend({
+  createdAt: timestampSchema,
+  disabled: z.boolean(),
+  /** `false` until the person chose a password (pending invitation). */
+  hasPassword: z.boolean(),
+  lastSeenAt: timestampSchema.nullable(),
+});
+export type Account = z.infer<typeof accountSchema>;
+
+/** A one-time link to hand over; the token is in the path and only valid once. */
+export const userLinkSchema = z.object({
+  kind: z.enum(USER_LINK_KINDS),
+  /** Path in the app, e.g. `/lien/…`: prefix it with the address of the server. */
+  path: z.string(),
+  expiresAt: timestampSchema,
+});
+export type UserLink = z.infer<typeof userLinkSchema>;
+
+export const linkInfoSchema = z.object({ kind: z.enum(USER_LINK_KINDS), name: z.string(), email: z.string() });
+export type LinkInfo = z.infer<typeof linkInfoSchema>;
+
+export const apiTokenSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  /** First characters of the secret, to tell tokens apart. */
+  prefix: z.string(),
+  scope: z.enum(TOKEN_SCOPES),
+  lastUsedAt: timestampSchema.nullable(),
+  createdAt: timestampSchema,
+});
+export type ApiToken = z.infer<typeof apiTokenSchema>;
+
+/** The secret is only ever returned here, once. */
+export const createdTokenSchema = z.object({ token: apiTokenSchema, secret: z.string() });
+export type CreatedToken = z.infer<typeof createdTokenSchema>;
+
+/* ---------- Backups, export and import ---------- */
+
+export const backupInfoSchema = z.object({
+  /** File name in the backup folder, e.g. `cairn-20261109-030000.db`. */
+  name: z.string(),
+  size: z.number().int(),
+  createdAt: timestampSchema,
+});
+export type BackupInfo = z.infer<typeof backupInfoSchema>;
+
+const nullableTimestamp = timestampSchema.nullable();
+
+/**
+ * The whole workspace as JSON, to read elsewhere or to move to another instance. Version 1. No passwords, sessions
+ * or API tokens: imported accounts get a link to choose their password.
+ */
+export const workspaceExportSchema = z.object({
+  format: z.literal('cairn-export'),
+  version: z.literal(1),
+  exportedAt: timestampSchema,
+  settings: z.object({ dormancyDays: z.number().int().min(1).max(365).optional() }),
+  users: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string().min(1),
+      email: z.string().min(3),
+      role: userRoleSchema,
+      createdAt: timestampSchema,
+      disabledAt: nullableTimestamp,
+    }),
+  ),
+  labels: z.array(z.object({ id: z.string(), name: z.string().min(1), color: colorSchema })),
+  projects: z.array(
+    z.object({
+      id: z.string(),
+      key: z.string().regex(PROJECT_KEY_PATTERN),
+      name: z.string().min(1),
+      description: z.string(),
+      color: colorSchema,
+      icon: z.string().nullable(),
+      status: projectStatusSchema,
+      startDate: isoDateSchema.nullable(),
+      targetDate: isoDateSchema.nullable(),
+      sortOrder: z.string(),
+      createdAt: timestampSchema,
+      updatedAt: timestampSchema,
+      archivedAt: nullableTimestamp,
+    }),
+  ),
+  subprojects: z.array(
+    z.object({
+      id: z.string(),
+      projectId: z.string(),
+      name: z.string().min(1),
+      description: z.string(),
+      status: projectStatusSchema,
+      targetDate: isoDateSchema.nullable(),
+      sortOrder: z.string(),
+      createdAt: timestampSchema,
+      updatedAt: timestampSchema,
+      archivedAt: nullableTimestamp,
+    }),
+  ),
+  topics: z.array(
+    z.object({
+      id: z.string(),
+      projectId: z.string(),
+      subprojectId: z.string().nullable(),
+      number: z.number().int().positive(),
+      title: z.string().min(1),
+      description: z.string(),
+      status: topicStatusSchema,
+      priority: topicPrioritySchema,
+      dueDate: isoDateSchema.nullable(),
+      assigneeId: z.string().nullable(),
+      sortOrder: z.string(),
+      createdAt: timestampSchema,
+      updatedAt: timestampSchema,
+      lastActivityAt: timestampSchema,
+      completedAt: nullableTimestamp,
+    }),
+  ),
+  topicLabels: z.array(z.object({ topicId: z.string(), labelId: z.string() })),
+  checklistItems: z.array(
+    z.object({ id: z.string(), topicId: z.string(), text: z.string(), done: z.boolean(), sortOrder: z.string() }),
+  ),
+  notes: z.array(
+    z.object({
+      id: z.string(),
+      topicId: z.string(),
+      authorId: z.string().nullable(),
+      body: z.string(),
+      createdAt: timestampSchema,
+      updatedAt: timestampSchema,
+    }),
+  ),
+  activity: z.array(
+    z.object({
+      id: z.string(),
+      entityType: z.enum(['project', 'subproject', 'topic']),
+      entityId: z.string(),
+      actorId: z.string().nullable(),
+      action: z.string(),
+      payload: z.record(z.string(), z.unknown()),
+      createdAt: timestampSchema,
+    }),
+  ),
+});
+export type WorkspaceExport = z.infer<typeof workspaceExportSchema>;
+
+export const importResultSchema = z.object({
+  projects: z.number().int(),
+  topics: z.number().int(),
+  /** Accounts created by the import: they need a link from an administrator to choose a password. */
+  newAccounts: z.number().int(),
+});
+export type ImportResult = z.infer<typeof importResultSchema>;
 
 /* ---------- Inputs ---------- */
 
-/** First run: creates the first account, which is admin. Passwords arrive with authentication (J4). */
+/** First run (`create`, name required) or claiming the administrator account of an install from before J4. */
 export const setupInputSchema = z.object({
-  name: z.string().trim().min(1).max(120),
-  email: z.string().trim().toLowerCase().pipe(z.email()),
+  name: z.string().trim().min(1).max(120).optional(),
+  email: emailSchema,
+  password: newPasswordSchema,
 });
 export type SetupInput = z.infer<typeof setupInputSchema>;
+
+export const loginInputSchema = z.object({
+  email: z.string().trim().toLowerCase().max(320),
+  password: z.string().min(1).max(200),
+});
+export type LoginInput = z.infer<typeof loginInputSchema>;
+
+export const useLinkInputSchema = z.object({ password: newPasswordSchema });
+
+export const createAccountInputSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  email: emailSchema,
+  role: userRoleSchema.default('member'),
+});
+export type CreateAccountInput = z.infer<typeof createAccountInputSchema>;
+
+export const updateAccountInputSchema = z.object({ role: userRoleSchema, disabled: z.boolean() }).partial();
+export type UpdateAccountInput = z.infer<typeof updateAccountInputSchema>;
+
+export const updateMeInputSchema = z.object({ name: z.string().trim().min(1).max(120), email: emailSchema }).partial();
+export type UpdateMeInput = z.infer<typeof updateMeInputSchema>;
+
+export const changePasswordInputSchema = z.object({
+  currentPassword: z.string().min(1).max(200),
+  newPassword: newPasswordSchema,
+});
+export type ChangePasswordInput = z.infer<typeof changePasswordInputSchema>;
+
+export const createTokenInputSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  scope: z.enum(TOKEN_SCOPES),
+});
+export type CreateTokenInput = z.infer<typeof createTokenInputSchema>;
 
 export const projectKeySchema = z.string().trim().toUpperCase().regex(PROJECT_KEY_PATTERN, 'Expected 2 to 5 letters');
 

@@ -1,0 +1,15 @@
+# Builds Cairn from this repository and runs it: docker compose up -d --build
+# The database and the nightly backups live in ./cairn-data.
+services:
+  cairn:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: cairn:local
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./cairn-data:/data
+    environment:
+      CAIRN_BASE_URL: ""

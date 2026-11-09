@@ -1,0 +1,12 @@
+# Cairn on a Raspberry Pi (or any Docker host). Copy this file into an empty folder, then: docker compose up -d
+services:
+  cairn:
+    image: ghcr.io/OWNER/cairn:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/data
+    environment:
+      # Public address, when Cairn is reached through a domain (links shown by `cairn reset-password`, Secure cookies).
+      CAIRN_BASE_URL: ""

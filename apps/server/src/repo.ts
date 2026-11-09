@@ -4,6 +4,7 @@ import {
   type BulkTopicPatch,
   buildOverview,
   type ChecklistItem,
+  COMPLETED_WINDOW_DAYS,
   type CreateChecklistItemInput,
   type CreateNoteInput,
   type CreateProjectInput,
@@ -16,6 +17,8 @@ import {
   type Label,
   type Me,
   nextProjectColor,
+  OVERVIEW_GROUP_LIMIT,
+  OVERVIEW_LIST_LIMIT,
   type Overview,
   type ProjectActivity,
   type ProjectStatus,
@@ -25,8 +28,6 @@ import {
   type SearchHit,
   type SearchResult,
   type SearchSegment,
-  type SetupInput,
-  type SetupStatus,
   type SubprojectSummary,
   sortKeyBetween,
   type TopicDetail,
@@ -39,17 +40,18 @@ import {
   type UpdateSubprojectInput,
   type UpdateTopicInput,
   type User,
+  type WorkspaceExport,
   type WorkspaceSettings,
 } from '@cairn/shared';
-import { and, asc, desc, eq, inArray, isNotNull, isNull, max, min, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, max, min, or, type SQL, sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
 import type { Db } from './db/index.ts';
 import * as schema from './db/schema.ts';
 
-export class NotFoundError extends Error {}
-export class ValidationError extends Error {}
-/** The request clashes with existing data (a key already used, a workspace already set up). */
-export class ConflictError extends Error {}
+import { ConflictError, NotFoundError, ValidationError } from './errors.ts';
+import { exportWorkspace, importWorkspace, topicsCsv } from './transfer.ts';
+
+export { ConflictError, NotFoundError, ValidationError };
 
 type EntityType = 'project' | 'subproject' | 'topic';
 type ArchivedFilter = 'exclude' | 'only' | 'include';
@@ -142,34 +144,9 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
 
   /* ---------- Users & settings ---------- */
 
-  /** Until authentication lands (J4), the first admin is the current user. */
-  function currentUser(): User {
-    const row =
-      db.select().from(users).where(eq(users.role, 'admin')).orderBy(asc(users.createdAt)).get() ??
-      db.select().from(users).orderBy(asc(users.createdAt)).get();
-    if (!row) throw new NotFoundError('No user exists yet');
-    return toUser(row);
-  }
-
+  /** People who can be assigned: accounts that are not disabled. */
   function listUsers(): User[] {
-    return db.select().from(users).orderBy(asc(users.name)).all().map(toUser);
-  }
-
-  function setupStatus(): SetupStatus {
-    return { required: !db.select({ id: users.id }).from(users).get() };
-  }
-
-  /** First run: creates the first account as admin. Refused once any account exists. */
-  function setup(input: SetupInput): User {
-    const at = now();
-    return db.transaction((tx) => {
-      if (tx.select({ id: users.id }).from(users).get()) throw new ConflictError('The workspace is already set up');
-      const user = { id: ulid(at.getTime()), name: input.name, email: input.email, role: 'admin' as const };
-      tx.insert(users)
-        .values({ ...user, createdAt: at })
-        .run();
-      return user;
-    });
+    return db.select().from(users).where(isNull(users.disabledAt)).orderBy(asc(users.name)).all().map(toUser);
   }
 
   function dormancyDays(): number {
@@ -207,6 +184,29 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
 
   type TopicRow = ReturnType<typeof selectTopics>[number];
 
+  /** When each topic last entered `waiting`, from the activity log. */
+  function waitingSinceOf(ids: readonly string[]): Map<string, string> {
+    const since = new Map<string, string>();
+    for (const part of chunk(ids)) {
+      for (const row of db
+        .select({ topicId: activity.entityId, at: max(activity.createdAt) })
+        .from(activity)
+        .where(
+          and(
+            eq(activity.entityType, 'topic'),
+            eq(activity.action, 'status_changed'),
+            sql`json_extract(${activity.payload}, '$.to') = 'waiting'`,
+            inArray(activity.entityId, part),
+          ),
+        )
+        .groupBy(activity.entityId)
+        .all()) {
+        if (row.at) since.set(row.topicId, iso(row.at));
+      }
+    }
+    return since;
+  }
+
   /** Adds labels, checklist counts and waiting dates to raw topic rows. */
   function hydrate(rows: TopicRow[]): TopicSummary[] {
     const ids = rows.map((r) => r.topic.id);
@@ -241,23 +241,8 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
       }
     }
 
-    const waitingIds = rows.filter((r) => r.topic.status === 'waiting').map((r) => r.topic.id);
-    for (const part of chunk(waitingIds)) {
-      for (const row of db
-        .select({ topicId: activity.entityId, at: max(activity.createdAt) })
-        .from(activity)
-        .where(
-          and(
-            eq(activity.entityType, 'topic'),
-            eq(activity.action, 'status_changed'),
-            sql`json_extract(${activity.payload}, '$.to') = 'waiting'`,
-            inArray(activity.entityId, part),
-          ),
-        )
-        .groupBy(activity.entityId)
-        .all()) {
-        if (row.at) waitingSince.set(row.topicId, iso(row.at));
-      }
+    for (const [id, at] of waitingSinceOf(rows.filter((r) => r.topic.status === 'waiting').map((r) => r.topic.id))) {
+      waitingSince.set(id, at);
     }
 
     return rows.map(({ topic, ...joined }) => ({
@@ -541,7 +526,7 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     return { patch, changes };
   }
 
-  function createProject(input: CreateProjectInput, actorId: string | null = currentUser().id): ProjectSummary {
+  function createProject(input: CreateProjectInput, actorId: string | null): ProjectSummary {
     const at = now();
     db.transaction((tx) => {
       if (tx.select({ id: projects.id }).from(projects).where(eq(projects.key, input.key)).get()) {
@@ -579,11 +564,7 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     return getProject(input.key);
   }
 
-  function updateProject(
-    key: string,
-    input: UpdateProjectInput,
-    actorId: string | null = currentUser().id,
-  ): ProjectSummary {
+  function updateProject(key: string, input: UpdateProjectInput, actorId: string | null): ProjectSummary {
     const current = findProjectRow(key);
     const at = now();
     const { patch, changes } = containerPatch(current, input, at);
@@ -609,7 +590,7 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
   function createSubproject(
     projectKey: string,
     input: CreateSubprojectInput,
-    actorId: string | null = currentUser().id,
+    actorId: string | null,
   ): SubprojectSummary {
     const project = findProjectRow(projectKey);
     const at = now();
@@ -651,11 +632,7 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     return sub;
   }
 
-  function updateSubproject(
-    id: string,
-    input: UpdateSubprojectInput,
-    actorId: string | null = currentUser().id,
-  ): SubprojectSummary {
+  function updateSubproject(id: string, input: UpdateSubprojectInput, actorId: string | null): SubprojectSummary {
     const current = db.select().from(subprojects).where(eq(subprojects.id, id)).get();
     if (!current) throw new NotFoundError('Subproject not found');
     const at = now();
@@ -676,13 +653,89 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
 
   /* ---------- Overview, search, me ---------- */
 
-  function overview(today?: string): Overview {
-    const active = listProjects().filter((p) => p.status === 'active');
-    const activeIds = new Set(active.map((p) => p.id));
-    const allTopics = listTopics().filter((t) => activeIds.has(t.projectId));
+  /**
+   * The home page over the active projects (minus `excludeProjectIds`, the viewer's filter). Topics are sorted from
+   * light rows; only the ones sent (the first of each list) are loaded in full.
+   */
+  function overview(today?: string, excludeProjectIds: readonly string[] = []): Overview {
+    const active = listProjects().filter((p) => p.status === 'active' && !excludeProjectIds.includes(p.id));
+    const activeIds = active.map((p) => p.id);
+    const at = now();
+    const since = new Date(at.getTime() - COMPLETED_WINDOW_DAYS * 86_400_000);
+    const rows =
+      activeIds.length === 0
+        ? []
+        : db
+            .select({
+              id: topics.id,
+              projectId: topics.projectId,
+              status: topics.status,
+              priority: topics.priority,
+              dueDate: topics.dueDate,
+              sortOrder: topics.sortOrder,
+              lastActivityAt: topics.lastActivityAt,
+              completedAt: topics.completedAt,
+            })
+            .from(topics)
+            .where(
+              and(
+                inArray(topics.projectId, activeIds),
+                or(
+                  inArray(topics.status, ['todo', 'in_progress', 'waiting']),
+                  and(eq(topics.status, 'backlog'), isNotNull(topics.dueDate)),
+                  and(eq(topics.status, 'done'), gte(topics.completedAt, since)),
+                ),
+              ),
+            )
+            .all();
+    const waiting = waitingSinceOf(rows.filter((r) => r.status === 'waiting').map((r) => r.id));
+    const light = rows.map((r) => ({
+      ...r,
+      lastActivityAt: iso(r.lastActivityAt),
+      completedAt: isoOrNull(r.completedAt),
+      waitingSince: r.status === 'waiting' ? (waiting.get(r.id) ?? iso(r.lastActivityAt)) : null,
+    }));
+    const selection = buildOverview({ topics: light, projects: active, now: at, today, dormancyDays: dormancyDays() });
+
+    const firsts = <T>(list: T[]) => list.slice(0, OVERVIEW_LIST_LIMIT);
+    const sent = [
+      ...selection.inProgress.flatMap((g) => g.topics.slice(0, OVERVIEW_GROUP_LIMIT)),
+      ...firsts(selection.waiting),
+      ...firsts(selection.overdue),
+      ...firsts(selection.upcoming),
+      ...firsts(selection.dormant),
+      ...firsts(selection.completedThisWeek),
+    ];
+    const ids = [...new Set(sent.map((t) => t.id))];
+    const full = new Map(
+      (ids.length === 0 ? [] : hydrate(selectTopics(inArray(topics.id, ids)))).map((t) => [t.id, t] as const),
+    );
+    const fill = (list: Array<{ id: string }>) => list.flatMap((t) => full.get(t.id) ?? []);
+
     return {
-      ...buildOverview({ topics: allTopics, projects: active, now: now(), today, dormancyDays: dormancyDays() }),
-      recentActivity: recentActivity([...activeIds]),
+      today: selection.today,
+      dormancyDays: selection.dormancyDays,
+      activeProjectCount: selection.activeProjectCount,
+      totals: {
+        inProgress: selection.inProgress.reduce((n, g) => n + g.topics.length, 0),
+        waiting: selection.waiting.length,
+        overdue: selection.overdue.length,
+        upcoming: selection.upcoming.length,
+        dormant: selection.dormant.length,
+        completedThisWeek: selection.completedThisWeek.length,
+      },
+      inProgress: selection.inProgress.map((g) => ({
+        project: g.project,
+        total: g.topics.length,
+        topics: fill(g.topics.slice(0, OVERVIEW_GROUP_LIMIT)),
+      })),
+      waiting: fill(firsts(selection.waiting)),
+      overdue: fill(firsts(selection.overdue)),
+      upcoming: fill(firsts(selection.upcoming)),
+      dormant: fill(firsts(selection.dormant)),
+      progress: selection.progress,
+      completedThisWeek: fill(firsts(selection.completedThisWeek)),
+      recentActivity: recentActivity(activeIds),
     };
   }
 
@@ -839,8 +892,7 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     return { topics: topicResults, subprojects: subprojectResults.slice(0, 5) };
   }
 
-  function me(): Me {
-    const user = currentUser();
+  function me(user: User): Me {
     const row = db
       .select({ count: sql<number>`count(*)` })
       .from(topics)
@@ -885,7 +937,7 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     db.update(topics).set({ updatedAt: at, lastActivityAt: at }).where(eq(topics.id, topicId)).run();
   }
 
-  function createTopic(input: CreateTopicInput, actorId: string | null = currentUser().id): TopicDetail {
+  function createTopic(input: CreateTopicInput, actorId: string | null): TopicDetail {
     const at = now();
     const id = db.transaction((tx) => {
       const project = tx.select().from(projects).where(eq(projects.id, input.projectId)).get();
@@ -927,11 +979,7 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     return getTopic(id);
   }
 
-  function updateTopic(
-    refOrId: string,
-    input: UpdateTopicInput,
-    actorId: string | null = currentUser().id,
-  ): TopicDetail {
+  function updateTopic(refOrId: string, input: UpdateTopicInput, actorId: string | null): TopicDetail {
     const row = findTopicRow(refOrId);
     const current = row.topic;
     const at = now();
@@ -1019,11 +1067,7 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
   }
 
   /** One change on several topics, all or nothing: any refused topic rolls the whole batch back. */
-  function updateTopics(
-    refs: readonly string[],
-    patch: BulkTopicPatch,
-    actorId: string | null = currentUser().id,
-  ): TopicSummary[] {
+  function updateTopics(refs: readonly string[], patch: BulkTopicPatch, actorId: string | null): TopicSummary[] {
     const { addLabelIds = [], removeLabelIds = [], ...fields } = patch;
     const ids = db.transaction(() =>
       [...new Set(refs)].map((ref) => {
@@ -1048,11 +1092,7 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     );
   }
 
-  function addChecklistItem(
-    refOrId: string,
-    input: CreateChecklistItemInput,
-    actorId: string | null = currentUser().id,
-  ) {
+  function addChecklistItem(refOrId: string, input: CreateChecklistItemInput, actorId: string | null) {
     const { topic } = findTopicRow(refOrId);
     const at = now();
     const last = db
@@ -1075,7 +1115,7 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     return item;
   }
 
-  function updateChecklistItem(id: string, input: UpdateChecklistItemInput, actorId: string | null = currentUser().id) {
+  function updateChecklistItem(id: string, input: UpdateChecklistItemInput, actorId: string | null) {
     const item = db.select().from(checklistItems).where(eq(checklistItems.id, id)).get();
     if (!item) throw new NotFoundError('Checklist item not found');
     const at = now();
@@ -1091,7 +1131,7 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     return next;
   }
 
-  function addNote(refOrId: string, input: CreateNoteInput, actorId: string | null = currentUser().id): TopicNote {
+  function addNote(refOrId: string, input: CreateNoteInput, actorId: string | null): TopicNote {
     const { topic } = findTopicRow(refOrId);
     const at = now();
     const id = ulid(at.getTime());
@@ -1114,10 +1154,7 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
   }
 
   return {
-    currentUser,
     listUsers,
-    setupStatus,
-    setup,
     listLabels,
     dormancyDays,
     listTopics,
@@ -1141,6 +1178,9 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     addChecklistItem,
     updateChecklistItem,
     addNote,
+    exportWorkspace: () => exportWorkspace(db, now()),
+    importWorkspace: (doc: WorkspaceExport) => importWorkspace(db, doc),
+    topicsCsv: () => topicsCsv(db),
   };
 }
 

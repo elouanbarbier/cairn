@@ -9,7 +9,7 @@ import {
   MoonIcon,
   SparklesIcon,
 } from 'lucide-react';
-import { type MouseEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type MouseEvent, type ReactNode, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { ActivityItem } from '@/components/activity-item';
@@ -44,32 +44,14 @@ function readHidden(): string[] {
   }
 }
 
-/** Drops topics of projects hidden by the filter. */
-function filterOverview(overview: Overview, hidden: string[]): Overview {
-  if (hidden.length === 0) return overview;
-  const keep = (t: TopicSummary) => !hidden.includes(t.projectId);
-  return {
-    ...overview,
-    activeProjectCount: overview.progress.filter((p) => !hidden.includes(p.project.id)).length,
-    inProgress: overview.inProgress.filter((g) => !hidden.includes(g.project.id)),
-    waiting: overview.waiting.filter(keep),
-    overdue: overview.overdue.filter(keep),
-    upcoming: overview.upcoming.filter(keep),
-    dormant: overview.dormant.filter(keep),
-    progress: overview.progress.filter((p) => !hidden.includes(p.project.id)),
-    completedThisWeek: overview.completedThisWeek.filter(keep),
-    recentActivity: overview.recentActivity.filter((a) => !hidden.includes(a.project.id)),
-  };
-}
-
 export function OverviewPage() {
   const { t } = useTranslation();
   const ui = useUi();
-  const overview = useOverview();
   const me = useMe();
   const projects = useProjects();
   const noProjects = projects.data?.length === 0;
   const [hidden, setHidden] = useState<string[]>(readHidden);
+  const overview = useOverview(hidden);
   const now = new Date();
   const today = todayISO();
 
@@ -85,10 +67,7 @@ export function OverviewPage() {
     }
   };
 
-  const data = useMemo(
-    () => (overview.data ? filterOverview(overview.data, hidden) : undefined),
-    [overview.data, hidden],
-  );
+  const data = overview.data;
   const hour = now.getHours();
   const greetingKey = hour >= 18 || hour < 5 ? 'overview.greetingEvening' : 'overview.greetingMorning';
 
@@ -110,17 +89,19 @@ export function OverviewPage() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuLabel>{t('overview.filterProjects')}</DropdownMenuLabel>
-                {overview.data?.progress.map(({ project }) => (
-                  <DropdownMenuCheckboxItem
-                    key={project.id}
-                    checked={!hidden.includes(project.id)}
-                    onCheckedChange={() => toggleProject(project.id)}
-                    onSelect={(e) => e.preventDefault()}
-                  >
-                    <ColorSquare color={project.color} />
-                    {project.name}
-                  </DropdownMenuCheckboxItem>
-                ))}
+                {projects.data
+                  ?.filter((project) => project.status === 'active')
+                  .map((project) => (
+                    <DropdownMenuCheckboxItem
+                      key={project.id}
+                      checked={!hidden.includes(project.id)}
+                      onCheckedChange={() => toggleProject(project.id)}
+                      onSelect={(e) => e.preventDefault()}
+                    >
+                      <ColorSquare color={project.color} />
+                      {project.name}
+                    </DropdownMenuCheckboxItem>
+                  ))}
               </DropdownMenuContent>
             </DropdownMenu>
             {noProjects ? null : (
@@ -292,6 +273,15 @@ function GroupRow({ children, className }: { children: ReactNode; className?: st
   );
 }
 
+/** Footer of a list the server cut: how many more there are. */
+function More({ count }: { count: number }) {
+  const { t } = useTranslation();
+  if (count <= 0) return null;
+  return (
+    <p className="m-0 border-line border-t px-4 pt-2 pb-2.5 text-ink-4 text-xs">{t('overview.more', { count })}</p>
+  );
+}
+
 function Empty({ children }: { children: ReactNode }) {
   return <p className="m-0 border-line border-t px-4 py-3 text-ink-4 text-xs">{children}</p>;
 }
@@ -300,13 +290,13 @@ function OverviewContent({ data, now }: { data: Overview; now: Date }) {
   const { t } = useTranslation();
   const [showAllInProgress, setShowAllInProgress] = useState(false);
   const [showAllCompleted, setShowAllCompleted] = useState(false);
-  const inProgressCount = data.inProgress.reduce((n, g) => n + g.topics.length, 0);
+  const inProgressCount = data.totals.inProgress;
   const truncated = data.inProgress.some((g) => g.topics.length > IN_PROGRESS_PER_PROJECT);
   const oldestWaiting = data.waiting[0];
   const oldestWaitingDays = oldestWaiting
     ? elapsedDays(oldestWaiting.waitingSince ?? oldestWaiting.lastActivityAt, now)
     : 0;
-  const deadlineCount = data.overdue.length + data.upcoming.length;
+  const deadlineCount = data.totals.overdue + data.totals.upcoming;
   const moreCompleted = data.completedThisWeek.length - COMPLETED_SHOWN;
 
   return (
@@ -323,7 +313,7 @@ function OverviewContent({ data, now }: { data: Overview; now: Date }) {
           id="en-attente"
           icon={<StatusIcon status="waiting" />}
           label={t('overview.stats.waiting')}
-          value={data.waiting.length}
+          value={data.totals.waiting}
           hint={
             oldestWaiting
               ? t('overview.stats.waitingHint', { count: oldestWaitingDays })
@@ -334,15 +324,15 @@ function OverviewContent({ data, now }: { data: Overview; now: Date }) {
           id="echeances"
           icon={<CalendarIcon className="size-3.5" strokeWidth={2} aria-hidden />}
           label={t('overview.stats.overdue')}
-          value={data.overdue.length}
-          hint={t('overview.stats.overdueHint', { count: data.upcoming.length })}
-          danger={data.overdue.length > 0}
+          value={data.totals.overdue}
+          hint={t('overview.stats.overdueHint', { count: data.totals.upcoming })}
+          danger={data.totals.overdue > 0}
         />
         <StatCard
           id="dormants"
           icon={<MoonIcon className="size-3.5" strokeWidth={2} aria-hidden />}
           label={t('overview.stats.dormant')}
-          value={data.dormant.length}
+          value={data.totals.dormant}
           hint={t('overview.stats.dormantHint', { count: data.dormancyDays })}
         />
       </div>
@@ -372,7 +362,7 @@ function OverviewContent({ data, now }: { data: Overview; now: Date }) {
                 <GroupRow>
                   <ColorSquare color={group.project.color} />
                   {group.project.name}
-                  <Count>{group.topics.length}</Count>
+                  <Count>{group.total}</Count>
                 </GroupRow>
                 {(showAllInProgress ? group.topics : group.topics.slice(0, IN_PROGRESS_PER_PROJECT)).map((topic) => (
                   <TopicLink key={topic.id} topic={topic}>
@@ -389,6 +379,16 @@ function OverviewContent({ data, now }: { data: Overview; now: Date }) {
                     </span>
                   </TopicLink>
                 ))}
+                {showAllInProgress && group.total > group.topics.length ? (
+                  <Link
+                    to="/p/$key"
+                    params={{ key: group.project.key }}
+                    search={{ status: 'in_progress' }}
+                    className="block border-line border-t px-4 pt-2 pb-2.5 text-ink-3 text-xs no-underline hover:text-ink"
+                  >
+                    {t('overview.seeInProgress', { count: group.total })}
+                  </Link>
+                ) : null}
               </div>
             ))}
           </Panel>
@@ -404,7 +404,7 @@ function OverviewContent({ data, now }: { data: Overview; now: Date }) {
               <>
                 <GroupRow className="border-danger-line bg-danger-soft text-danger">
                   {t('overview.overdue')}
-                  <span className="font-normal tabular-nums">{data.overdue.length}</span>
+                  <span className="font-normal tabular-nums">{data.totals.overdue}</span>
                 </GroupRow>
                 {data.overdue.map((topic) => (
                   <TopicLink key={topic.id} topic={topic}>
@@ -420,13 +420,14 @@ function OverviewContent({ data, now }: { data: Overview; now: Date }) {
                     </span>
                   </TopicLink>
                 ))}
+                <More count={data.totals.overdue - data.overdue.length} />
               </>
             ) : null}
             {data.upcoming.length > 0 ? (
               <>
                 <GroupRow>
                   {t('overview.next7Days')}
-                  <Count>{data.upcoming.length}</Count>
+                  <Count>{data.totals.upcoming}</Count>
                 </GroupRow>
                 {data.upcoming.map((topic) => (
                   <TopicLink key={topic.id} topic={topic}>
@@ -439,6 +440,7 @@ function OverviewContent({ data, now }: { data: Overview; now: Date }) {
                     </span>
                   </TopicLink>
                 ))}
+                <More count={data.totals.upcoming - data.upcoming.length} />
               </>
             ) : null}
           </Panel>
@@ -463,7 +465,7 @@ function OverviewContent({ data, now }: { data: Overview; now: Date }) {
             id="dormants"
             title={t('overview.dormant')}
             icon={<MoonIcon className="size-3.5 text-ink-3" strokeWidth={2} aria-hidden />}
-            count={data.dormant.length}
+            count={data.totals.dormant}
             hint={t('overview.dormantHint', { count: data.dormancyDays })}
           >
             {data.dormant.length === 0 ? <Empty>{t('overview.empty.dormant')}</Empty> : null}
@@ -478,13 +480,14 @@ function OverviewContent({ data, now }: { data: Overview; now: Date }) {
                 />
               </TopicLink>
             ))}
+            <More count={data.totals.dormant - data.dormant.length} />
           </Panel>
 
           <Panel
             id="en-attente"
             title={t('overview.waiting')}
             icon={<StatusIcon status="waiting" />}
-            count={data.waiting.length}
+            count={data.totals.waiting}
           >
             {data.waiting.length === 0 ? <Empty>{t('overview.empty.waiting')}</Empty> : null}
             {data.waiting.map((topic) => (
@@ -496,6 +499,7 @@ function OverviewContent({ data, now }: { data: Overview; now: Date }) {
                 </span>
               </TopicLink>
             ))}
+            <More count={data.totals.waiting - data.waiting.length} />
           </Panel>
 
           <Panel
@@ -538,7 +542,7 @@ function OverviewContent({ data, now }: { data: Overview; now: Date }) {
           <Panel
             title={t('overview.completed')}
             icon={<StatusIcon status="done" />}
-            count={data.completedThisWeek.length}
+            count={data.totals.completedThisWeek}
           >
             {data.completedThisWeek.length === 0 ? <Empty>{t('overview.empty.completed')}</Empty> : null}
             {(showAllCompleted ? data.completedThisWeek : data.completedThisWeek.slice(0, COMPLETED_SHOWN)).map(
@@ -561,6 +565,7 @@ function OverviewContent({ data, now }: { data: Overview; now: Date }) {
                 {t('overview.moreCompleted', { count: moreCompleted })}
               </button>
             ) : null}
+            {showAllCompleted ? <More count={data.totals.completedThisWeek - data.completedThisWeek.length} /> : null}
           </Panel>
         </div>
       </div>

@@ -8,7 +8,9 @@ import * as schema from './schema.ts';
 
 export type Db = BetterSQLite3Database<typeof schema>;
 
-const MIGRATIONS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../../drizzle');
+/** The SQL migrations; the Docker image sets `CAIRN_MIGRATIONS_DIR`, since its server is a single bundled file. */
+const MIGRATIONS_DIR =
+  process.env.CAIRN_MIGRATIONS_DIR ?? resolve(dirname(fileURLToPath(import.meta.url)), '../../drizzle');
 
 /** Opens (or creates) the SQLite file in WAL mode and applies pending migrations. */
 export function openDatabase(path: string): { db: Db; sqlite: Database.Database } {

@@ -11,24 +11,41 @@ import type {
   User,
 } from '@cairn/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createApi } from './app.ts';
+import { createAccounts } from './accounts.ts';
+import { createApi, SESSION_COOKIE } from './app.ts';
 import { openDatabase } from './db/index.ts';
 import { createRepo } from './repo.ts';
-import { seedDemo } from './seed/demo.ts';
+import { DEMO_ACCOUNTS, DEMO_PASSWORD, seedDemo } from './seed/demo.ts';
 
 const NOW = new Date('2026-11-07T19:00:00');
 let clock = NOW;
 let api: ReturnType<typeof createApi>;
+/** Requests run as the demo administrator, signed in with a session cookie. */
+let cookie = '';
 
-beforeEach(() => {
+/** A fresh API over `db`; returns the accounts too. */
+function build(db: ReturnType<typeof openDatabase>['db']) {
+  const accounts = createAccounts(db, { now: () => clock });
+  api = createApi(createRepo(db, { now: () => clock }), accounts);
+  return accounts;
+}
+
+/** `name=value` of the session cookie a response sets. */
+function sessionCookie(res: Response) {
+  const set = res.headers.get('set-cookie') ?? '';
+  return set.split(';')[0] ?? '';
+}
+
+beforeEach(async () => {
   clock = NOW;
   const { db } = openDatabase(':memory:');
   seedDemo(db, NOW);
-  api = createApi(createRepo(db, { now: () => clock }));
+  const { session } = await build(db).login(DEMO_ACCOUNTS[0], DEMO_PASSWORD, null);
+  cookie = `${SESSION_COOKIE}=${session.token}`;
 });
 
 async function get<T>(path: string): Promise<T> {
-  const res = await api.request(path);
+  const res = await api.request(path, { headers: { cookie } });
   expect(res.status, path).toBe(200);
   return (await res.json()) as T;
 }
@@ -36,11 +53,11 @@ async function get<T>(path: string): Promise<T> {
 async function send<T>(method: string, path: string, payload: unknown, status = 200): Promise<T> {
   const res = await api.request(path, {
     method,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', cookie },
     body: JSON.stringify(payload),
   });
   expect(res.status, `${method} ${path}`).toBe(status);
-  return (await res.json()) as T;
+  return (status === 204 ? undefined : await res.json()) as T;
 }
 
 describe('overview', () => {
@@ -53,6 +70,25 @@ describe('overview', () => {
     expect(overview.upcoming.map((t) => t.ref)).toEqual(['AIDE-9', 'OUT-3', 'POR-24', 'POR-31']);
     expect(overview.dormant.map((t) => t.ref)).toEqual(['POR-12', 'AIDE-5', 'OUT-6']);
     expect(overview.completedThisWeek).toHaveLength(5);
+  });
+});
+
+describe('overview size', () => {
+  it('sends the first topics of each list with the totals, and leaves out filtered projects', async () => {
+    const por = await get<ProjectSummary>('/projects/POR');
+    for (let i = 0; i < 25; i++) {
+      await send('POST', '/topics', { projectId: por.id, title: `Relance ${i}`, status: 'waiting' }, 201);
+    }
+    const overview = await get<Overview>('/overview?today=2026-11-07');
+    expect(overview.totals.waiting).toBe(28);
+    expect(overview.waiting).toHaveLength(20);
+    const group = overview.inProgress.find((g) => g.project.key === 'POR');
+    expect(group?.total).toBe(group?.topics.length);
+
+    const without = await get<Overview>(`/overview?today=2026-11-07&exclude=${por.id}`);
+    expect(without.totals.waiting).toBe(1);
+    expect(without.inProgress.map((g) => g.project.key)).not.toContain('POR');
+    expect(without.activeProjectCount).toBe(2);
   });
 });
 
@@ -108,7 +144,7 @@ describe('projects', () => {
   });
 
   it('returns 404 for an unknown project', async () => {
-    const res = await api.request('/projects/NOPE');
+    const res = await api.request('/projects/NOPE', { headers: { cookie } });
     expect(res.status).toBe(404);
   });
 });
@@ -282,7 +318,7 @@ describe('search', () => {
 
   it('reads any input as plain words', async () => {
     for (const q of ['"foo" OR bar*', 'NEAR(a b)', '-', '()*:^']) {
-      const res = await api.request(`/search?q=${encodeURIComponent(q)}`);
+      const res = await api.request(`/search?q=${encodeURIComponent(q)}`, { headers: { cookie } });
       expect(res.status, q).toBe(200);
     }
   });
@@ -296,18 +332,28 @@ describe('openapi', () => {
 });
 
 describe('first run', () => {
-  it('creates the first admin once, then lets the workspace grow from nothing', async () => {
+  it('creates the administrator with a password, signs in, then lets the workspace grow', async () => {
     const { db } = openDatabase(':memory:');
-    api = createApi(createRepo(db, { now: () => clock }));
+    build(db);
+    cookie = '';
 
-    expect(await get<SetupStatus>('/setup')).toEqual({ required: true });
-    expect((await api.request('/me')).status).toBe(404);
-    await send('POST', '/setup', { name: 'Ada', email: 'not-an-email' }, 400);
+    expect(await get<SetupStatus>('/setup')).toEqual({ required: true, mode: 'create', demo: false });
+    expect((await api.request('/me')).status).toBe(401);
+    await send('POST', '/setup', { name: 'Ada', email: 'not-an-email', password: 'long enough' }, 400);
+    await send('POST', '/setup', { name: 'Ada', email: 'ada@example.com', password: 'short' }, 400);
 
-    const admin = await send<User>('POST', '/setup', { name: ' Ada Lovelace ', email: 'Ada@Example.com' }, 201);
+    const res = await api.request('/setup', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: ' Ada Lovelace ', email: 'Ada@Example.com', password: 'analytical engine' }),
+    });
+    expect(res.status).toBe(201);
+    expect(res.headers.get('set-cookie')).toMatch(/HttpOnly/i);
+    cookie = sessionCookie(res);
+    const admin = (await res.json()) as User;
     expect(admin).toMatchObject({ name: 'Ada Lovelace', email: 'ada@example.com', role: 'admin' });
-    expect(await get<SetupStatus>('/setup')).toEqual({ required: false });
-    await send('POST', '/setup', { name: 'Eve', email: 'eve@example.com' }, 409);
+    expect(await get<SetupStatus>('/setup')).toMatchObject({ required: false, mode: null });
+    await send('POST', '/setup', { name: 'Eve', email: 'eve@example.com', password: 'another one!' }, 409);
 
     const project = await send<ProjectSummary>('POST', '/projects', { key: 'crm', name: 'CRM' }, 201);
     const sub = await send<SubprojectSummary>('POST', '/projects/CRM/subprojects', { name: 'Import' }, 201);
@@ -323,6 +369,28 @@ describe('first run', () => {
 
     const overview = await get<Overview>('/overview');
     expect(overview.inProgress.map((g) => [g.project.key, g.topics.map((t) => t.ref)])).toEqual([['CRM', ['CRM-1']]]);
+  });
+
+  it('lets the administrator of an install from before sign-in choose a password', async () => {
+    const { db } = openDatabase(':memory:');
+    seedDemo(db, NOW);
+    // Before J4, accounts had no password.
+    db.update((await import('./db/schema.ts')).users)
+      .set({ passwordHash: null })
+      .run();
+    build(db);
+    cookie = '';
+    expect(await get<SetupStatus>('/setup')).toMatchObject({ required: true, mode: 'claim' });
+    // Only the administrator's email works.
+    await send('POST', '/setup', { email: DEMO_ACCOUNTS[1], password: 'a new password' }, 400);
+    const res = await api.request('/setup', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: DEMO_ACCOUNTS[0], password: 'a new password' }),
+    });
+    expect(res.status).toBe(201);
+    cookie = sessionCookie(res);
+    expect((await get<Me>('/me')).user.email).toBe(DEMO_ACCOUNTS[0]);
   });
 });
 

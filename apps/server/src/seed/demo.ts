@@ -1,5 +1,7 @@
 import {
   addDays,
+  DEMO_ACCOUNTS,
+  DEMO_PASSWORD,
   isClosed,
   type ProjectStatus,
   sortKeysAfter,
@@ -9,6 +11,7 @@ import {
 } from '@cairn/shared';
 import { sql } from 'drizzle-orm';
 import { ulid } from 'ulid';
+import { hashPasswordSync } from '../accounts.ts';
 import type { Db } from '../db/index.ts';
 import * as schema from '../db/schema.ts';
 
@@ -562,6 +565,15 @@ const PROJECTS: DemoProject[] = [
 ];
 
 /** Deletes every row, then inserts the demo data set. */
+export { DEMO_ACCOUNTS, DEMO_PASSWORD };
+
+let demoHash: string | null = null;
+/** Hashed once per process: seeding runs often in tests. */
+function demoPasswordHash() {
+  demoHash ??= hashPasswordSync(DEMO_PASSWORD);
+  return demoHash;
+}
+
 export function seedDemo(db: Db, now: Date = new Date()): void {
   const today = toISODate(now);
   const ago = (days: number) => new Date(now.getTime() - days * DAY);
@@ -582,21 +594,26 @@ export function seedDemo(db: Db, now: Date = new Date()): void {
       schema.subprojects,
       schema.projects,
       schema.apiTokens,
+      schema.sessions,
+      schema.userLinks,
       schema.settings,
       schema.users,
     ]) {
       tx.delete(table).run();
     }
 
-    const me = { id: ulid(), email: 'elouan@example.com', name: 'Elouan Barbier', role: 'admin' as const };
-    const teammate = { id: ulid(), email: 'camille@example.com', name: 'Camille Durand', role: 'member' as const };
+    const me = { id: ulid(), email: DEMO_ACCOUNTS[0], name: 'Elouan Barbier', role: 'admin' as const };
+    const teammate = { id: ulid(), email: DEMO_ACCOUNTS[1], name: 'Camille Durand', role: 'member' as const };
+    const passwordHash = demoPasswordHash();
     tx.insert(schema.users)
       .values([
-        { ...me, createdAt: ago(60) },
-        { ...teammate, createdAt: ago(59) },
+        { ...me, passwordHash, createdAt: ago(60) },
+        { ...teammate, passwordHash, createdAt: ago(59) },
       ])
       .run();
     tx.insert(schema.settings).values({ key: 'dormancy_days', value: 14 }).run();
+    // The sign-in page shows the demo accounts while this flag is set.
+    tx.insert(schema.settings).values({ key: 'demo', value: true }).run();
 
     const labelIds = new Map<string, string>();
     for (const label of LABELS) {

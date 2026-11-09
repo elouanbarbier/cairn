@@ -1,6 +1,7 @@
 node_modules/
 dist/
 data/
+cairn-data/
 *.db
 *.db-shm
 *.db-wal

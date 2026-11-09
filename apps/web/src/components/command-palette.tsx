@@ -20,6 +20,7 @@ import {
   LayersIcon,
   LayoutDashboardIcon,
   ListFilterIcon,
+  LogOutIcon,
   MinusIcon,
   PlusIcon,
   SearchIcon,
@@ -34,7 +35,7 @@ import { PriorityIcon, StatusIcon } from '@/components/icons';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Kbd } from '@/components/ui/kbd';
 import { formatWeekdayDate, todayISO } from '@/lib/format';
-import { queryKeys, useBulkUpdateTopics, useLabels, useProjects, useSearch, useTopic } from '@/lib/queries';
+import { queryKeys, useBulkUpdateTopics, useLabels, useLogout, useProjects, useSearch, useTopic } from '@/lib/queries';
 import { useTheme } from '@/lib/theme';
 import { useTopicPanel } from '@/lib/topic-panel';
 import { type PaletteField, useUi } from '@/lib/ui-state';
@@ -100,6 +101,7 @@ export function CommandPalette() {
   const { setting, setSetting } = useTheme();
   const projects = useProjects();
   const bulk = useBulkUpdateTopics();
+  const logout = useLogout();
   const [query, setQuery] = useState('');
   const debounced = useDebounced(query.trim(), 90);
   const search = useSearch(debounced);
@@ -209,6 +211,15 @@ export function CommandPalette() {
         run: () => {
           const dark = document.documentElement.classList.contains('dark');
           setSetting(setting === 'system' ? (dark ? 'light' : 'dark') : setting === 'dark' ? 'light' : 'dark');
+        },
+      });
+      list.push({
+        id: 'sign-out',
+        label: t('palette.signOut'),
+        icon: <LogOutIcon className="size-3.5 text-ink-3" strokeWidth={2} aria-hidden />,
+        run: () => {
+          close();
+          logout.mutate();
         },
       });
       list.push({

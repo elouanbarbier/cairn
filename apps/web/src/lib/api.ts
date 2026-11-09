@@ -1,13 +1,23 @@
 import type {
+  Account,
   ApiError,
+  ApiToken,
+  BackupInfo,
   BulkUpdateTopicsInput,
+  ChangePasswordInput,
   ChecklistItem,
+  CreateAccountInput,
   CreateChecklistItemInput,
+  CreatedToken,
   CreateNoteInput,
   CreateProjectInput,
   CreateSubprojectInput,
+  CreateTokenInput,
   CreateTopicInput,
+  ImportResult,
   Label,
+  LinkInfo,
+  LoginInput,
   Me,
   Overview,
   ProjectActivity,
@@ -19,12 +29,15 @@ import type {
   TopicDetail,
   TopicNote,
   TopicSummary,
+  UpdateAccountInput,
   UpdateChecklistItemInput,
+  UpdateMeInput,
   UpdateProjectInput,
   UpdateSettingsInput,
   UpdateSubprojectInput,
   UpdateTopicInput,
   User,
+  UserLink,
   WorkspaceSettings,
 } from '@cairn/shared';
 
@@ -53,8 +66,12 @@ async function request<T>(path: string, init?: RequestInit & { json?: unknown })
       payload?.error.message ?? res.statusText,
     );
   }
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
+
+/** The request needed a session that is missing or expired. */
+export const isUnauthorized = (error: unknown) => error instanceof ApiRequestError && error.status === 401;
 
 export interface TopicFilter {
   project?: string;
@@ -65,13 +82,34 @@ export interface TopicFilter {
 export const api = {
   setupStatus: () => request<SetupStatus>('/setup'),
   setup: (input: SetupInput) => request<User>('/setup', { method: 'POST', json: input }),
+  login: (input: LoginInput) => request<User>('/auth/login', { method: 'POST', json: input }),
+  logout: () => request<void>('/auth/logout', { method: 'POST' }),
+  logoutOthers: () => request<void>('/auth/logout-others', { method: 'POST' }),
+  linkInfo: (token: string) => request<LinkInfo>(`/auth/links/${encodeURIComponent(token)}`),
+  redeemLink: (token: string, password: string) =>
+    request<User>(`/auth/links/${encodeURIComponent(token)}`, { method: 'POST', json: { password } }),
   me: () => request<Me>('/me'),
+  updateMe: (input: UpdateMeInput) => request<User>('/me', { method: 'PATCH', json: input }),
+  changePassword: (input: ChangePasswordInput) => request<void>('/me/password', { method: 'POST', json: input }),
+  tokens: () => request<ApiToken[]>('/tokens'),
+  createToken: (input: CreateTokenInput) => request<CreatedToken>('/tokens', { method: 'POST', json: input }),
+  revokeToken: (id: string) => request<void>(`/tokens/${id}`, { method: 'DELETE' }),
+  accounts: () => request<Account[]>('/accounts'),
+  importWorkspace: (doc: unknown) => request<ImportResult>('/import', { method: 'POST', json: doc }),
+  backups: () => request<BackupInfo[]>('/backups'),
+  runBackup: () => request<BackupInfo>('/backups', { method: 'POST' }),
+  createAccount: (input: CreateAccountInput) =>
+    request<{ account: Account; link: UserLink }>('/accounts', { method: 'POST', json: input }),
+  updateAccount: (id: string, input: UpdateAccountInput) =>
+    request<Account>(`/accounts/${id}`, { method: 'PATCH', json: input }),
+  accountLink: (id: string) => request<UserLink>(`/accounts/${id}/link`, { method: 'POST' }),
   settings: () => request<WorkspaceSettings>('/settings'),
   updateSettings: (input: UpdateSettingsInput) =>
     request<WorkspaceSettings>('/settings', { method: 'PATCH', json: input }),
   users: () => request<User[]>('/users'),
   labels: () => request<Label[]>('/labels'),
-  overview: (today: string) => request<Overview>(`/overview?today=${today}`),
+  overview: (today: string, exclude: readonly string[] = []) =>
+    request<Overview>(`/overview?today=${today}${exclude.length > 0 ? `&exclude=${exclude.join(',')}` : ''}`),
   projects: () => request<ProjectSummary[]>('/projects'),
   archivedProjects: () => request<ProjectSummary[]>('/projects?archived=true'),
   project: (key: string) => request<ProjectSummary>(`/projects/${key}`),

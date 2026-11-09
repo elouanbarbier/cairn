@@ -18,6 +18,21 @@ async function drag(page: Page, from: Locator, to: Locator) {
   await page.mouse.up();
 }
 
+const ADMIN = { name: 'Ada Lovelace', email: 'ada@example.com', password: 'analytical engine' };
+
+/** Each test starts in a new browser context, signed out. */
+async function signIn(page: Page, email = ADMIN.email, password = ADMIN.password) {
+  await page.goto('/');
+  await page.getByLabel('Email').fill(email);
+  await page.getByLabel('Password').fill(password);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(mainNav(page)).toBeVisible();
+}
+
+test.beforeEach(async ({ page }, testInfo) => {
+  if (!testInfo.title.startsWith('first run')) await signIn(page);
+});
+
 async function createTopic(page: Page, title: string) {
   await page.keyboard.press('c');
   const dialog = page.getByRole('dialog', { name: 'New topic' });
@@ -29,8 +44,9 @@ async function createTopic(page: Page, title: string) {
 test('first run: account, project, subproject and topics, all without reloading', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Welcome to Cairn' })).toBeVisible();
-  await page.getByLabel('Your name').fill('Ada Lovelace');
-  await page.getByLabel('Email').fill('ada@example.com');
+  await page.getByLabel('Your name').fill(ADMIN.name);
+  await page.getByLabel('Email').fill(ADMIN.email);
+  await page.getByLabel('Password').fill(ADMIN.password);
   await page.getByRole('button', { name: 'Get started' }).click();
   await expect(page.getByRole('heading', { name: 'Start with a project' })).toBeVisible();
 
@@ -209,4 +225,38 @@ test('drag and drop: a row into another group, a project up the sidebar', async 
   await page.reload();
   await expect(projects.first()).toHaveText(/^Keyboard first/);
   await expect(page.getByRole('region', { name: 'Sprint' }).getByRole('link', { name: /KF-2\b/ })).toBeVisible();
+});
+
+test('access: invite a member, who joins through the link, and sign out', async ({ page, browser }) => {
+  await page.goto('/parametres');
+  const users = page.getByRole('region', { name: 'Users' });
+  await users.getByLabel('Name').fill('Grace Hopper');
+  await users.getByLabel('Email').fill('grace@example.com');
+  await users.getByRole('button', { name: 'Invite' }).click();
+  const link = await users.getByRole('textbox', { name: 'Link for Grace Hopper' }).inputValue();
+  expect(link).toMatch(/\/lien\/[\w-]+$/);
+  await expect(users).toContainText('Invitation pending');
+
+  // Grace, in her own browser.
+  const context = await browser.newContext();
+  const grace = await context.newPage();
+  await grace.goto(link);
+  await expect(grace.getByRole('heading', { name: 'Welcome, Grace Hopper' })).toBeVisible();
+  await grace.getByLabel('Password', { exact: true }).fill('compiler pioneer');
+  await grace.getByLabel('Confirm the password').fill('compiler pioneer');
+  await grace.getByRole('button', { name: 'Join' }).click();
+  await expect(mainNav(grace)).toBeVisible();
+  // A member sees no administration.
+  await grace.goto('/parametres');
+  await expect(grace.getByRole('region', { name: 'Account' })).toBeVisible();
+  await expect(grace.getByRole('region', { name: 'Users' })).toHaveCount(0);
+  // The link worked once.
+  await grace.goto(link);
+  await expect(grace.getByText('This link is no longer valid')).toBeVisible();
+  await context.close();
+
+  // Signing out leads back to the sign-in page, and the API refuses requests without a session.
+  await page.getByRole('region', { name: 'Account' }).getByRole('button', { name: 'Sign out', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+  expect((await page.request.get('/api/projects')).status()).toBe(401);
 });

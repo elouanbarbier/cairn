@@ -6,6 +6,16 @@ test.describe.configure({ mode: 'serial' });
 
 const panel = (page: import('@playwright/test').Page, name: string) => page.getByRole('region', { name, exact: true });
 
+// The demo administrator (the sign-in page lists the demo accounts).
+test.beforeEach(async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Demo data:')).toBeVisible();
+  await page.getByLabel('Email').fill('elouan@example.com');
+  await page.getByLabel('Password').fill('cairn-demo');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+});
+
 test('the overview answers the four questions: what moves, what is stuck, what is due, what sleeps', async ({
   page,
 }) => {
@@ -32,7 +42,7 @@ test('the dormancy threshold comes from the settings page', async ({ page }) => 
   const days = page.getByLabel('Dormancy threshold');
   await expect(days).toHaveValue('14');
   await days.fill('365');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('region', { name: 'Workspace' }).getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Dormancy threshold: 365 days')).toBeVisible();
 
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Overview' }).click();
@@ -40,6 +50,6 @@ test('the dormancy threshold comes from the settings page', async ({ page }) => 
 
   // Back to the default for the next runs of this server.
   await page.goto('/parametres');
-  await page.getByRole('button', { name: '14 days' }).click();
+  await page.getByRole('region', { name: 'Workspace' }).getByRole('button', { name: '14 days' }).click();
   await expect(page.getByText('Dormancy threshold: 14 days')).toBeVisible();
 });

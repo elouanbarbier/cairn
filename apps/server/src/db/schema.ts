@@ -1,4 +1,4 @@
-import type { ProjectStatus, TopicPriority, TopicStatus, UserRole } from '@cairn/shared';
+import type { ProjectStatus, TokenScope, TopicPriority, TopicStatus, UserLinkKind, UserRole } from '@cairn/shared';
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
@@ -10,11 +10,44 @@ export const users = sqliteTable('users', {
   id: text('id').primaryKey(),
   email: text('email').notNull().unique(),
   name: text('name').notNull(),
-  /** Set when authentication lands (J4). */
+  /** argon2id; `null` until the person chooses a password (invitation, import, accounts from before J4). */
   passwordHash: text('password_hash'),
   role: text('role').$type<UserRole>().notNull().default('member'),
   createdAt: createdAt(),
+  /** A disabled account keeps its history but cannot sign in. */
+  disabledAt: timestamp('disabled_at'),
 });
+
+/** Signed-in browsers. The cookie holds a random token; only its SHA-256 is stored. */
+export const sessions = sqliteTable(
+  'sessions',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+    expiresAt: timestamp('expires_at').notNull(),
+    lastSeenAt: timestamp('last_seen_at').notNull(),
+    userAgent: text('user_agent'),
+  },
+  (t) => [index('sessions_user_idx').on(t.userId)],
+);
+
+/** One-time invitation and password reset links; only the SHA-256 of the token is stored. */
+export const userLinks = sqliteTable(
+  'user_links',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<UserLinkKind>().notNull(),
+    createdAt: createdAt(),
+    expiresAt: timestamp('expires_at').notNull(),
+  },
+  (t) => [index('user_links_user_idx').on(t.userId)],
+);
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -153,6 +186,9 @@ export const apiTokens = sqliteTable('api_tokens', {
     .references(() => users.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   tokenHash: text('token_hash').notNull().unique(),
+  /** First characters of the token, shown to tell tokens apart. */
+  prefix: text('prefix').notNull().default(''),
+  scope: text('scope').$type<TokenScope>().notNull().default('write'),
   lastUsedAt: timestamp('last_used_at'),
   createdAt: createdAt(),
 });

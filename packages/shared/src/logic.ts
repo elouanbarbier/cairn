@@ -63,9 +63,23 @@ function compareDue(a: TopicSummary, b: TopicSummary): number {
   return a.dueDate < b.dueDate ? -1 : 1;
 }
 
-export interface OverviewInput {
-  /** Every topic of active projects. */
-  topics: readonly TopicSummary[];
+/** What the overview needs to know about a topic to place it. */
+export type OverviewTopic = Pick<
+  TopicSummary,
+  | 'id'
+  | 'projectId'
+  | 'status'
+  | 'priority'
+  | 'dueDate'
+  | 'sortOrder'
+  | 'lastActivityAt'
+  | 'completedAt'
+  | 'waitingSince'
+>;
+
+export interface OverviewInput<T extends OverviewTopic> {
+  /** Every topic of active projects that can matter: open, unsorted with a due date, or done this week. */
+  topics: readonly T[];
   /** Active projects, in sidebar order. */
   projects: readonly ProjectSummary[];
   now: Date;
@@ -74,24 +88,44 @@ export interface OverviewInput {
   dormancyDays: number;
 }
 
+/** The overview's lists, complete and sorted; the server keeps the first few of each with their totals. */
+export interface OverviewSelection<T> {
+  today: string;
+  dormancyDays: number;
+  activeProjectCount: number;
+  inProgress: Array<{ project: ProjectRef; topics: T[] }>;
+  waiting: T[];
+  overdue: T[];
+  upcoming: T[];
+  dormant: T[];
+  progress: Overview['progress'];
+  completedThisWeek: T[];
+}
+
+function compareDueOf(a: OverviewTopic, b: OverviewTopic): number {
+  if (a.dueDate === b.dueDate) return a.sortOrder < b.sortOrder ? -1 : 1;
+  if (a.dueDate === null) return 1;
+  if (b.dueDate === null) return -1;
+  return a.dueDate < b.dueDate ? -1 : 1;
+}
+
 /** Builds the overview: what moves, what is stuck, what is due, what sleeps. Recent activity comes from the log. */
-export function buildOverview({
+export function buildOverview<T extends OverviewTopic>({
   topics,
   projects,
   now,
   today = toISODate(now),
   dormancyDays,
-}: OverviewInput): Omit<Overview, 'recentActivity'> {
+}: OverviewInput<T>): OverviewSelection<T> {
   const toRef = (p: ProjectSummary): ProjectRef => ({ id: p.id, key: p.key, name: p.name, color: p.color });
   const upcomingLimit = addDays(today, UPCOMING_WINDOW_DAYS);
   const completedSince = now.getTime() - COMPLETED_WINDOW_DAYS * 86_400_000;
+  const byPriorityThenDue = (a: T, b: T) => PRIORITY_RANK[b.priority] - PRIORITY_RANK[a.priority] || compareDueOf(a, b);
 
   const inProgress = projects
     .map((project) => ({
       project: toRef(project),
-      topics: topics
-        .filter((t) => t.projectId === project.id && t.status === 'in_progress')
-        .sort(compareByPriorityThenDue),
+      topics: topics.filter((t) => t.projectId === project.id && t.status === 'in_progress').sort(byPriorityThenDue),
     }))
     .filter((group) => group.topics.length > 0);
 
@@ -100,10 +134,10 @@ export function buildOverview({
     .sort((a, b) => (a.waitingSince ?? a.lastActivityAt).localeCompare(b.waitingSince ?? b.lastActivityAt));
 
   const withDue = topics.filter((t) => t.dueDate !== null && !isClosed(t.status));
-  const overdue = withDue.filter((t) => (t.dueDate as string) < today).sort(compareDue);
+  const overdue = withDue.filter((t) => (t.dueDate as string) < today).sort(compareDueOf);
   const upcoming = withDue
     .filter((t) => (t.dueDate as string) >= today && (t.dueDate as string) <= upcomingLimit)
-    .sort(compareDue);
+    .sort(compareDueOf);
 
   const dormant = topics
     .filter((t) => isDormant(t, now, dormancyDays))

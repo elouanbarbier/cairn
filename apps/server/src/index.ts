@@ -3,7 +3,9 @@ import { resolve } from 'node:path';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
+import { createAccounts } from './accounts.ts';
 import { createApi } from './app.ts';
+import { createBackups } from './backup.ts';
 import { loadConfig } from './config.ts';
 import { openDatabase } from './db/index.ts';
 import { createRepo } from './repo.ts';
@@ -18,7 +20,11 @@ if (config.seedDemoWhenEmpty && isEmpty(db)) {
 }
 
 const app = new Hono();
-app.route('/api', createApi(createRepo(db)));
+const accounts = createAccounts(db);
+accounts.purgeExpired();
+const backups = config.backupKeep > 0 ? createBackups(sqlite, config.backupDir, config.backupKeep) : undefined;
+const stopBackups = backups?.schedule(() => accounts.purgeExpired());
+app.route('/api', createApi(createRepo(db), accounts, { baseUrl: config.baseUrl, backups }));
 
 if (config.production) {
   // The compiled SPA: static assets, then index.html for every client route.
@@ -32,6 +38,7 @@ const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
 });
 
 function shutdown() {
+  stopBackups?.();
   server.close();
   sqlite.close();
   process.exit(0);
