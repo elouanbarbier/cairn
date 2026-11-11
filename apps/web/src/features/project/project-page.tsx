@@ -8,7 +8,17 @@ import {
   type TopicSummary,
 } from '@cairn/shared';
 import { Link } from '@tanstack/react-router';
-import { ArchiveIcon, ArchiveRestoreIcon, EllipsisIcon, LayersIcon, LinkIcon, PlusIcon } from 'lucide-react';
+import {
+  ArchiveIcon,
+  ArchiveRestoreIcon,
+  EllipsisIcon,
+  HistoryIcon,
+  LayersIcon,
+  LinkIcon,
+  NotebookTextIcon,
+  PlusIcon,
+  SearchXIcon,
+} from 'lucide-react';
 import { type ReactNode, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -38,7 +48,7 @@ import { type ProjectTab, projectRoute, subprojectRoute, type ViewSearch } from 
 import { filterTopics, hasFilters, parseFilters } from './filters';
 import { KanbanBoard } from './kanban-board';
 import { TopicList } from './topic-list';
-import { FilterMenu, GroupMenu, ViewSwitch } from './view-controls';
+import { EmptyListAction, FilterMenu, GroupMenu, ViewSwitch } from './view-controls';
 
 function NewTopicButton({ onClick }: { onClick: () => void }) {
   const { t } = useTranslation();
@@ -93,7 +103,7 @@ function StatusMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label={`${label} (${t(`projectStatus.${status}`)})`}
+        aria-label={`${label}, ${t(`projectStatus.${status}`)}`}
         className={cn(pillClass, STATUS_PILL[status].pill, 'border-0 hover:brightness-95')}
       >
         {pill}
@@ -162,6 +172,23 @@ function ArchivedBanner({
   );
 }
 
+/** A project or subproject that does not exist (any more): say so, and lead back home. */
+function NotFound({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
+  return (
+    <EmptyState
+      icon={<SearchXIcon strokeWidth={1.75} />}
+      action={
+        <Link to="/" className="font-medium text-brand underline underline-offset-2">
+          {t('topic.backToOverview')}
+        </Link>
+      }
+    >
+      {children}
+    </EmptyState>
+  );
+}
+
 function Meta({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
   return (
     <div className={cn('flex flex-col gap-1.5', className)}>
@@ -203,7 +230,7 @@ export function ProjectPage() {
   }, [project, archived, ui.setScreenContext]);
 
   if (isError) return <LoadError onRetry={refetch} />;
-  if (!project) return isPending ? null : <EmptyState>{t('project.notFound')}</EmptyState>;
+  if (!project) return isPending ? null : <NotFound>{t('project.notFound')}</NotFound>;
 
   const change = (patch: Parameters<typeof update.mutate>[0]['patch']) => update.mutate({ key: project.key, patch });
   const setArchived = (value: boolean) =>
@@ -357,6 +384,7 @@ export function ProjectPage() {
           retry={() => void topics.refetch()}
           search={search}
           dormancyDays={me.data?.dormancyDays ?? DEFAULT_DORMANCY_DAYS}
+          onCreate={editable ? () => ui.openCreate({ projectId: project.id }) : undefined}
         />
       ) : null}
       {tab === 'subprojects' ? <SubprojectCards project={project} editable={editable} /> : null}
@@ -371,7 +399,7 @@ export function ProjectPage() {
               readOnly={!editable}
             />
           ) : (
-            <EmptyState>{t('project.notesEmpty')}</EmptyState>
+            <EmptyState icon={<NotebookTextIcon strokeWidth={1.75} />}>{t('project.notesEmpty')}</EmptyState>
           )}
         </div>
       ) : null}
@@ -387,6 +415,7 @@ function ProjectTopics({
   retry,
   search,
   dormancyDays,
+  onCreate,
 }: {
   project: ProjectSummary;
   topics: TopicSummary[] | undefined;
@@ -394,6 +423,8 @@ function ProjectTopics({
   retry: () => void;
   search: ViewSearch;
   dormancyDays: number;
+  /** New topic in this project; absent when the project is archived. */
+  onCreate?: () => void;
 }) {
   const { t } = useTranslation();
   const view = search.view ?? 'list';
@@ -422,6 +453,7 @@ function ProjectTopics({
             project={project}
             dormancyDays={dormancyDays}
             emptyLabel={hasFilters(filters) ? t('views.emptyFiltered') : t('views.empty')}
+            emptyAction={<EmptyListAction filtered={hasFilters(filters)} onCreate={onCreate} />}
           />
         ) : (
           <div className="flex flex-auto flex-col pt-3">
@@ -448,6 +480,7 @@ function SubprojectCards({ project, editable }: { project: ProjectSummary; edita
     <div className="flex flex-col gap-6 px-4 py-6 sm:px-8">
       {project.subprojects.length === 0 ? (
         <EmptyState
+          icon={<LayersIcon strokeWidth={1.75} />}
           action={
             editable ? (
               <Button variant="outline" onClick={add}>
@@ -472,7 +505,7 @@ function SubprojectCards({ project, editable }: { project: ProjectSummary; edita
               {sub.description ? (
                 <span className="line-clamp-2 text-ink-3 text-xs">{summary(sub.description)}</span>
               ) : null}
-              <ProgressBar progress={sub.progress} />
+              <ProgressBar progress={sub.progress} label={sub.name} />
               <span className="flex items-center justify-between text-ink-4 text-xs tabular-nums">
                 <span>{t('project.openTopics', { count: sub.openCount })}</span>
                 <span>
@@ -529,7 +562,9 @@ function ProjectActivity({ projectKey }: { projectKey: string }) {
   const panel = useTopicPanel();
   if (activity.isError) return <LoadError onRetry={() => void activity.refetch()} />;
   if (!activity.data) return null;
-  if (activity.data.length === 0) return <EmptyState>{t('project.activityEmpty')}</EmptyState>;
+  if (activity.data.length === 0) {
+    return <EmptyState icon={<HistoryIcon strokeWidth={1.75} />}>{t('project.activityEmpty')}</EmptyState>;
+  }
   return (
     <ol className="m-0 flex max-w-[860px] list-none flex-col gap-3 px-4 py-6 text-ink-3 text-small sm:px-8">
       {activity.data.map((entry) => {
@@ -546,7 +581,7 @@ function ProjectActivity({ projectKey }: { projectKey: string }) {
                     to="/p/$key/sujets/$ref"
                     params={{ key: projectKey, ref }}
                     onClick={panel.onLinkClick({ projectKey, ref })}
-                    className="text-ink-2 no-underline hover:underline"
+                    className="text-ink-2 underline decoration-ink-5 underline-offset-2 hover:decoration-current"
                   >
                     <span className="font-mono text-caption">{ref}</span> {entry.topicTitle}
                   </Link>
@@ -598,7 +633,7 @@ export function SubprojectPage() {
   }, [project, subproject, archived, ui.setScreenContext]);
 
   if (isError) return <LoadError onRetry={refetch} />;
-  if (!project || !subproject) return isPending ? null : <EmptyState>{t('subproject.notFound')}</EmptyState>;
+  if (!project || !subproject) return isPending ? null : <NotFound>{t('subproject.notFound')}</NotFound>;
 
   const editable = !archived;
   const change = (patch: Parameters<typeof update.mutate>[0]['patch']) => update.mutate({ id: subproject.id, patch });
@@ -725,6 +760,12 @@ export function SubprojectPage() {
               createContext={createContext}
               dormancyDays={dormancyDays}
               emptyLabel={hasFilters(filters) ? t('views.emptyFiltered') : t('views.empty')}
+              emptyAction={
+                <EmptyListAction
+                  filtered={hasFilters(filters)}
+                  onCreate={editable ? () => ui.openCreate(createContext) : undefined}
+                />
+              }
             />
           </div>
         )

@@ -1,6 +1,6 @@
 import { TOPIC_PRIORITIES, TOPIC_STATUSES } from '@cairn/shared';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { ChevronDownIcon, KanbanSquareIcon, ListFilterIcon, ListIcon, XIcon } from 'lucide-react';
+import { ChevronDownIcon, KanbanSquareIcon, ListFilterIcon, ListIcon, PlusIcon, XIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Avatar } from '@/components/bits';
@@ -59,7 +59,7 @@ export function ViewSwitch({ view }: { view: ListView }) {
   );
 }
 
-const NO_FILTERS: Partial<ViewSearch> = {
+export const NO_FILTERS: Partial<ViewSearch> = {
   status: undefined,
   priority: undefined,
   label: undefined,
@@ -202,6 +202,27 @@ export function FilterMenu({ filters }: { filters: ParsedFilters }) {
         </span>
       ) : null}
     </>
+  );
+}
+
+/** The main action of an empty list: clear the filters that hide everything, or create the first topic. */
+export function EmptyListAction({ filtered, onCreate }: { filtered: boolean; onCreate?: () => void }) {
+  const { t } = useTranslation();
+  const update = useSearchUpdater();
+  if (filtered) {
+    return (
+      <Button variant="outline" onClick={() => update(NO_FILTERS)}>
+        <XIcon className="size-3.5" aria-hidden />
+        {t('views.clearFilters')}
+      </Button>
+    );
+  }
+  if (!onCreate) return null;
+  return (
+    <Button variant="outline" onClick={onCreate}>
+      <PlusIcon className="size-3.5" strokeWidth={2} aria-hidden />
+      {t('nav.newTopic')}
+    </Button>
   );
 }
 

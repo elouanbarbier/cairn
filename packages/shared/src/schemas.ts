@@ -38,6 +38,10 @@ export const labelSchema = z.object({
 });
 export type Label = z.infer<typeof labelSchema>;
 
+/** A label with the number of topics that carry it (settings and pickers). */
+export const labelUsageSchema = labelSchema.extend({ topicCount: z.number().int() });
+export type LabelUsage = z.infer<typeof labelUsageSchema>;
+
 export const progressSchema = z.object({
   done: z.number().int(),
   total: z.number().int(),
@@ -478,6 +482,18 @@ export const changePasswordInputSchema = z.object({
   newPassword: newPasswordSchema,
 });
 export type ChangePasswordInput = z.infer<typeof changePasswordInputSchema>;
+
+export const createLabelInputSchema = z.object({
+  name: z.string().trim().min(1).max(40),
+  /** Defaults to the first palette color no label uses yet. */
+  color: colorSchema.optional(),
+});
+export type CreateLabelInput = z.infer<typeof createLabelInputSchema>;
+
+export const updateLabelInputSchema = z
+  .object({ name: z.string().trim().min(1).max(40), color: colorSchema })
+  .partial();
+export type UpdateLabelInput = z.infer<typeof updateLabelInputSchema>;
 
 export const createTokenInputSchema = z.object({
   name: z.string().trim().min(1).max(80),

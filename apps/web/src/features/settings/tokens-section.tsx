@@ -37,7 +37,12 @@ export function TokensSection() {
     <Section title={t('settings.tokens')}>
       <p className="m-0 text-ink-3">
         {t('settings.tokensHint')}{' '}
-        <a href="/api/openapi.json" target="_blank" rel="noreferrer" className="text-brand">
+        <a
+          href="/api/openapi.json"
+          target="_blank"
+          rel="noreferrer"
+          className="text-brand underline underline-offset-2"
+        >
           {t('settings.apiDocs')}
         </a>
       </p>

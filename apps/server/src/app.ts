@@ -1,4 +1,5 @@
 import {
+  APP_VERSION,
   accountSchema,
   apiErrorSchema,
   apiTokenSchema,
@@ -9,6 +10,7 @@ import {
   createAccountInputSchema,
   createChecklistItemInputSchema,
   createdTokenSchema,
+  createLabelInputSchema,
   createNoteInputSchema,
   createProjectInputSchema,
   createSubprojectInputSchema,
@@ -16,7 +18,7 @@ import {
   createTopicInputSchema,
   importResultSchema,
   isoDateSchema,
-  labelSchema,
+  labelUsageSchema,
   linkInfoSchema,
   loginInputSchema,
   meSchema,
@@ -32,6 +34,7 @@ import {
   topicSummarySchema,
   updateAccountInputSchema,
   updateChecklistItemInputSchema,
+  updateLabelInputSchema,
   updateMeInputSchema,
   updateProjectInputSchema,
   updateSettingsInputSchema,
@@ -250,7 +253,29 @@ const routes = {
     method: 'get',
     path: '/labels',
     tags: ['Labels'],
-    responses: { 200: json(z.array(labelSchema), 'All labels') },
+    responses: { 200: json(z.array(labelUsageSchema), 'All labels, by name, with their topic counts') },
+  }),
+  createLabel: createRoute({
+    method: 'post',
+    path: '/labels',
+    tags: ['Labels'],
+    request: body(createLabelInputSchema),
+    responses: { 201: json(labelUsageSchema, 'Created label'), ...errors, ...conflict },
+  }),
+  updateLabel: createRoute({
+    method: 'patch',
+    path: '/labels/{id}',
+    tags: ['Labels'],
+    request: { params: z.object({ id: z.string() }), ...body(updateLabelInputSchema) },
+    responses: { 200: json(labelUsageSchema, 'Updated label'), ...errors, ...conflict },
+  }),
+  deleteLabel: createRoute({
+    method: 'delete',
+    path: '/labels/{id}',
+    tags: ['Labels'],
+    description: 'Administrators only. Removes the label from every topic.',
+    request: { params: z.object({ id: z.string() }) },
+    responses: { ...noContent, ...errors, ...denied },
   }),
   overview: createRoute({
     method: 'get',
@@ -540,7 +565,7 @@ export function createApi(repo: Repo, accounts: Accounts, options: ApiOptions = 
     if (c.get('auth').user.role !== 'admin') throw new ForbiddenError('Administrators only');
   };
 
-  api.get('/health', (c) => c.json({ ok: true }));
+  api.get('/health', (c) => c.json({ ok: true, version: APP_VERSION }));
 
   /* ---------- Access ---------- */
 
@@ -657,6 +682,13 @@ export function createApi(repo: Repo, accounts: Accounts, options: ApiOptions = 
 
   api.openapi(routes.users, (c) => c.json(repo.listUsers(), 200));
   api.openapi(routes.labels, (c) => c.json(repo.listLabels(), 200));
+  api.openapi(routes.createLabel, (c) => c.json(repo.createLabel(c.req.valid('json')), 201));
+  api.openapi(routes.updateLabel, (c) => c.json(repo.updateLabel(c.req.valid('param').id, c.req.valid('json')), 200));
+  api.openapi(routes.deleteLabel, (c) => {
+    admin(c);
+    repo.deleteLabel(c.req.valid('param').id);
+    return c.body(null, 204);
+  });
   api.openapi(routes.overview, (c) => {
     const { today, exclude } = c.req.valid('query');
     return c.json(repo.overview(today, exclude?.split(',').filter(Boolean)), 200);
@@ -717,7 +749,7 @@ export function createApi(repo: Repo, accounts: Accounts, options: ApiOptions = 
   });
   api.doc31('/openapi.json', {
     openapi: '3.1.0',
-    info: { title: 'Cairn API', version: '0.2.0', description: 'Projects, subprojects and topics.' },
+    info: { title: 'Cairn API', version: APP_VERSION, description: 'Projects, subprojects and topics.' },
     servers: [{ url: '/api' }],
     security: [{ token: [] }, { session: [] }],
   });

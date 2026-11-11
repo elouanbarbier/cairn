@@ -3,6 +3,7 @@ import type {
   ChangePasswordInput,
   ChecklistItem,
   CreateAccountInput,
+  CreateLabelInput,
   CreateProjectInput,
   CreateSubprojectInput,
   CreateTokenInput,
@@ -15,6 +16,7 @@ import type {
   TopicSummary,
   UpdateAccountInput,
   UpdateChecklistItemInput,
+  UpdateLabelInput,
   UpdateMeInput,
   UpdateProjectInput,
   UpdateSettingsInput,
@@ -574,5 +576,38 @@ export function useImportWorkspace() {
   return useMutation({
     mutationFn: (doc: unknown) => api.importWorkspace(doc),
     onSuccess: () => void client.invalidateQueries(),
+  });
+}
+
+/* ---------- Labels ---------- */
+
+/** Labels show on topics everywhere: a change refreshes the topic views too. */
+function invalidateLabels(client: QueryClient) {
+  void client.invalidateQueries({ queryKey: queryKeys.labels });
+  invalidateTopicViews(client);
+}
+
+export function useCreateLabel() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateLabelInput) => api.createLabel(input),
+    onSuccess: () => invalidateLabels(client),
+  });
+}
+
+export function useUpdateLabel() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateLabelInput }) => api.updateLabel(id, input),
+    onSuccess: () => invalidateLabels(client),
+  });
+}
+
+export function useDeleteLabel() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteLabel(id),
+    onSuccess: () => invalidateLabels(client),
+    onError: () => toast.error(i18n.t('errors.rollback')),
   });
 }

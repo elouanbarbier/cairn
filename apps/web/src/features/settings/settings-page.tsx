@@ -1,3 +1,4 @@
+import { APP_VERSION } from '@cairn/shared';
 import { type FormEvent, useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -13,6 +14,7 @@ import { useUi } from '@/lib/ui-state';
 import { cn } from '@/lib/utils';
 import { AccountSection } from './account-section';
 import { DataSection } from './data-section';
+import { LabelsSection } from './labels-section';
 import { Choice, Section } from './parts';
 import { TokensSection } from './tokens-section';
 import { UsersSection } from './users-section';
@@ -55,6 +57,7 @@ export function SettingsPage() {
         {me.data ? <AccountSection user={me.data.user} /> : null}
         <TokensSection />
         {isAdmin && me.data ? <UsersSection meId={me.data.user.id} /> : null}
+        <LabelsSection isAdmin={isAdmin} />
         {isAdmin ? <DataSection /> : null}
         <Section title={t('settings.workspace')}>
           {settings.isError ? <LoadError onRetry={() => void settings.refetch()} /> : null}
@@ -131,6 +134,8 @@ export function SettingsPage() {
             <Kbd variant="outline">?</Kbd>
           </Button>
         </Section>
+
+        <p className="m-0 text-ink-4 text-xs">{t('settings.about', { version: APP_VERSION })}</p>
       </div>
     </>
   );

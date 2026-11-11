@@ -1,3 +1,6 @@
+/** Cairn's version; release-please bumps it with the root package.json. */
+export const APP_VERSION = '1.0.0'; // x-release-please-version
+
 /** Topic statuses. Names are fixed in v1; each belongs to one category. */
 export const TOPIC_STATUSES = ['backlog', 'todo', 'in_progress', 'waiting', 'done', 'cancelled'] as const;
 export type TopicStatus = (typeof TOPIC_STATUSES)[number];

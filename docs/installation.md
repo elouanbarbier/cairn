@@ -7,22 +7,28 @@ runs the same on any amd64 or arm64 Linux host, or on macOS and Windows with Doc
 
 - Raspberry Pi OS **64-bit** (Lite is enough), up to date: `sudo apt update && sudo apt full-upgrade`.
 - Docker: `curl -fsSL https://get.docker.com | sh`, then `sudo usermod -aG docker $USER` and log in again.
-- Git: `sudo apt install -y git`.
+- Git, only to build from source: `sudo apt install -y git`.
 
 ## 2. Start Cairn
 
-From the source (works today):
+With the published image (recommended):
 
 ```sh
-git clone <this repository> cairn && cd cairn
+mkdir cairn && cd cairn
+curl -fsSLO https://raw.githubusercontent.com/OWNER/cairn/main/docker/compose.yaml
+docker compose up -d
+```
+
+Data lives in `./data` next to `compose.yaml`. The image exists for amd64 and arm64, so the Pi pulls its own.
+
+Or from the source, which builds the image on the Pi (a few minutes the first time):
+
+```sh
+git clone https://github.com/OWNER/cairn && cd cairn
 docker compose up -d --build
 ```
 
-The first build takes a few minutes on a Pi 4; the next starts take a few seconds. Data lives in `./cairn-data`.
-
-From a published image (once releases are tagged): copy [`docker/compose.yaml`](../docker/compose.yaml) into an
-empty folder, replace `OWNER` with the GitHub account that publishes the image, then `docker compose up -d`.
-Data then lives in `./data` next to that file.
+Data then lives in `./cairn-data`.
 
 Open `http://<pi-address>:3000` (for example `http://raspberrypi.local:3000`). The first screen creates the
 **administrator** account: name, email and a password of at least 10 characters.
@@ -66,10 +72,12 @@ or replace `http://localhost:3000` in it with the address you use.
 ## Updates
 
 ```sh
-git pull && docker compose up -d --build
+docker compose pull && docker compose up -d     # published image
+git pull && docker compose up -d --build        # from source
 ```
 
-Migrations run at startup. With a published image: `docker compose pull && docker compose up -d`.
+Migrations run at startup. The version in use is shown at the bottom of Settings. What changed is in the
+[changelog](../CHANGELOG.md).
 
 ## Reaching Cairn from outside
 

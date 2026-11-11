@@ -223,6 +223,33 @@ describe('topics', () => {
   });
 });
 
+describe('labels', () => {
+  type LabelUsage = { id: string; name: string; color: string; topicCount: number };
+  it('creates, renames and recolors labels, unique whatever the case', async () => {
+    const before = await get<LabelUsage[]>('/labels');
+    expect(before.find((l) => l.name === 'Front')?.topicCount).toBeGreaterThan(0);
+
+    const created = await send<LabelUsage>('POST', '/labels', { name: ' Juridique ' }, 201);
+    expect(created).toMatchObject({ name: 'Juridique', topicCount: 0 });
+    expect(before.map((l) => l.color)).not.toContain(created.color);
+    await send('POST', '/labels', { name: 'juridique' }, 409);
+    await send('PATCH', `/labels/${created.id}`, { name: 'FRONT' }, 409);
+
+    const updated = await send<LabelUsage>('PATCH', `/labels/${created.id}`, { name: 'Légal', color: '#0284C7' });
+    expect(updated).toMatchObject({ name: 'Légal', color: '#0284C7' });
+    await send('PATCH', '/topics/POR-24', { labelIds: [created.id] });
+    expect((await get<LabelUsage[]>('/labels')).find((l) => l.id === created.id)?.topicCount).toBe(1);
+  });
+
+  it('deletes a label from every topic', async () => {
+    const front = (await get<LabelUsage[]>('/labels')).find((l) => l.name === 'Front');
+    await send('DELETE', `/labels/${front?.id}`, undefined, 204);
+    const topic = await get<TopicDetail>('/topics/POR-24');
+    expect(topic.labels.map((l) => l.name)).not.toContain('Front');
+    await send('DELETE', `/labels/${front?.id}`, undefined, 404);
+  });
+});
+
 describe('bulk topic updates', () => {
   it('changes several topics at once and logs each change', async () => {
     const updated = await send<TopicSummary[]>('PATCH', '/topics', {

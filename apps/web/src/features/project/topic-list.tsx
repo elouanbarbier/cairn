@@ -29,7 +29,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Link } from '@tanstack/react-router';
-import { ChevronDownIcon, ChevronRightIcon, PlusIcon, XIcon } from 'lucide-react';
+import { ChevronDownIcon, ChevronRightIcon, ListTodoIcon, PlusIcon, XIcon } from 'lucide-react';
 import { type HTMLAttributes, type MouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Avatar, Count, DormantBadge, EmptyState, LabelChip, ProgressBar, TopicRef } from '@/components/bits';
@@ -133,6 +133,7 @@ export function TopicList({
   emptyLabel,
   createContext,
   showProject = false,
+  emptyAction,
 }: {
   topics: TopicSummary[];
   allTopics: TopicSummary[];
@@ -145,6 +146,8 @@ export function TopicList({
   createContext?: CreateContext;
   /** Show the project of each topic (lists spanning several projects). */
   showProject?: boolean;
+  /** Main action when the list is empty (create a topic, clear the filters). */
+  emptyAction?: ReactNode;
 }) {
   const { t } = useTranslation();
   const ui = useUi();
@@ -285,7 +288,13 @@ export function TopicList({
     if (patch) update.mutate({ ref: topic.ref, patch });
   };
 
-  if (groups.length === 0) return <EmptyState>{emptyLabel}</EmptyState>;
+  if (groups.length === 0) {
+    return (
+      <EmptyState icon={<ListTodoIcon strokeWidth={1.75} />} action={emptyAction}>
+        {emptyLabel}
+      </EmptyState>
+    );
+  }
 
   const sourceGroup = dragged ? groupOf(dragged.id)?.key : undefined;
 
@@ -414,7 +423,7 @@ function GroupSection({
         <Count>{t('views.openCount', { count: open })}</Count>
         {grouping === 'subproject' ? (
           <span className="ml-2 hidden items-center gap-2 text-ink-4 text-xs tabular-nums sm:inline-flex">
-            <ProgressBar progress={progress} height={4} className="w-14 bg-border" />
+            <ProgressBar progress={progress} height={4} label={name} className="w-14 bg-border" />
             {progress.done}/{progress.total}
           </span>
         ) : null}
@@ -554,9 +563,7 @@ function TopicRow({
       >
         {topic.dueDate ? formatShortDate(topic.dueDate) : null}
       </span>
-      <span className="w-5 shrink-0">
-        {topic.assignee ? <Avatar user={topic.assignee} className={cn(closed && 'opacity-50')} /> : null}
-      </span>
+      <span className="w-5 shrink-0">{topic.assignee ? <Avatar user={topic.assignee} /> : null}</span>
     </Link>
   );
 }

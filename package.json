@@ -1,5 +1,8 @@
 {
   "name": "cairn",
+  "version": "1.0.0",
+  "description": "Self-hosted project management: projects, subprojects and topics, on a Raspberry Pi.",
+  "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.18.0",
@@ -19,6 +22,7 @@
     "test:e2e": "pnpm --filter @cairn/web build && playwright test"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@biomejs/biome": "^2.6.6",
     "@playwright/test": "^1.65.0",
     "@types/node": "^26.6.6",

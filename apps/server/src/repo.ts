@@ -6,6 +6,7 @@ import {
   type ChecklistItem,
   COMPLETED_WINDOW_DAYS,
   type CreateChecklistItemInput,
+  type CreateLabelInput,
   type CreateNoteInput,
   type CreateProjectInput,
   type CreateSubprojectInput,
@@ -15,6 +16,7 @@ import {
   formatTopicRef,
   isClosed,
   type Label,
+  type LabelUsage,
   type Me,
   nextProjectColor,
   OVERVIEW_GROUP_LIMIT,
@@ -35,6 +37,7 @@ import {
   type TopicStatus,
   type TopicSummary,
   type UpdateChecklistItemInput,
+  type UpdateLabelInput,
   type UpdateProjectInput,
   type UpdateSettingsInput,
   type UpdateSubprojectInput,
@@ -154,8 +157,61 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
     return typeof row?.value === 'number' ? row.value : DEFAULT_DORMANCY_DAYS;
   }
 
-  function listLabels(): Label[] {
-    return db.select().from(labels).orderBy(asc(labels.name)).all();
+  /** Labels by name, with how many topics carry each. */
+  function listLabels(): LabelUsage[] {
+    return db
+      .select({
+        id: labels.id,
+        name: labels.name,
+        color: labels.color,
+        topicCount: sql<number>`count(${topicLabels.topicId})`,
+      })
+      .from(labels)
+      .leftJoin(topicLabels, eq(topicLabels.labelId, labels.id))
+      .groupBy(labels.id)
+      .orderBy(asc(sql`${labels.name} collate nocase`))
+      .all()
+      .map((l) => ({ ...l, topicCount: Number(l.topicCount) }));
+  }
+
+  /** Names are unique whatever their case: "Front" and "front" would be the same label to a reader. */
+  function assertLabelNameFree(name: string, exceptId?: string) {
+    const same = db.select({ id: labels.id }).from(labels).where(sql`lower(${labels.name}) = lower(${name})`).get();
+    if (same && same.id !== exceptId) throw new ConflictError(`A label is already called ${name}`);
+  }
+
+  function labelUsage(id: string): LabelUsage {
+    const label = listLabels().find((l) => l.id === id);
+    if (!label) throw new NotFoundError('Label not found');
+    return label;
+  }
+
+  function createLabel(input: CreateLabelInput): LabelUsage {
+    assertLabelNameFree(input.name);
+    const used = db
+      .select({ color: labels.color })
+      .from(labels)
+      .all()
+      .map((l) => l.color);
+    const id = ulid(now().getTime());
+    db.insert(labels)
+      .values({ id, name: input.name, color: input.color ?? nextProjectColor(used) })
+      .run();
+    return labelUsage(id);
+  }
+
+  function updateLabel(id: string, input: UpdateLabelInput): LabelUsage {
+    labelUsage(id);
+    if (input.name !== undefined) assertLabelNameFree(input.name, id);
+    const patch = { ...(input.name ? { name: input.name } : {}), ...(input.color ? { color: input.color } : {}) };
+    if (Object.keys(patch).length > 0) db.update(labels).set(patch).where(eq(labels.id, id)).run();
+    return labelUsage(id);
+  }
+
+  /** Removes the label from every topic, then the label. */
+  function deleteLabel(id: string) {
+    labelUsage(id);
+    db.delete(labels).where(eq(labels.id, id)).run();
   }
 
   /* ---------- Topics: reading ---------- */
@@ -1156,6 +1212,9 @@ export function createRepo(db: Db, options: RepoOptions = {}) {
   return {
     listUsers,
     listLabels,
+    createLabel,
+    updateLabel,
+    deleteLabel,
     dormancyDays,
     listTopics,
     getTopic,

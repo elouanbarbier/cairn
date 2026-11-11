@@ -77,7 +77,7 @@ export function TopicProperties({
   return (
     <aside
       aria-label={t('topic.properties')}
-      className="box-border flex flex-[1_1_320px] flex-col gap-5 border-border border-t bg-aside px-5 py-6 lg:border-t-0 lg:border-l"
+      className="box-border flex flex-col gap-5 border-border border-y bg-aside px-5 py-6 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:border-y-0 lg:border-l"
     >
       <div className="flex flex-col gap-0.5">
         <Row label={t('topic.props.status')}>

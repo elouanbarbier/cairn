@@ -238,7 +238,7 @@ function ActivityTarget({ entry }: { entry: RecentActivity }) {
           to="/p/$key/sujets/$ref"
           params={{ key: project.key, ref }}
           onClick={panel.onLinkClick({ projectKey: project.key, ref })}
-          className="text-ink-2 no-underline hover:underline"
+          className="text-ink-2 underline decoration-ink-5 underline-offset-2 hover:decoration-current"
         >
           <span className="font-mono text-caption">{ref}</span> {entry.topicTitle}
         </Link>
@@ -246,7 +246,7 @@ function ActivityTarget({ entry }: { entry: RecentActivity }) {
         <Link
           to="/p/$key"
           params={{ key: project.key }}
-          className="inline-flex items-center gap-1.5 text-ink-2 no-underline hover:underline"
+          className="inline-flex items-center gap-1.5 text-ink-2 underline decoration-ink-5 underline-offset-2 hover:decoration-current"
         >
           <ColorSquare color={project.color} />
           {project.name}
@@ -524,11 +524,17 @@ function OverviewContent({ data, now }: { data: Overview; now: Date }) {
                       {progress.done}/{progress.total} · {pct} %
                     </span>
                   </div>
-                  <ProgressBar progress={progress} color={project.color} />
+                  <ProgressBar progress={progress} color={project.color} label={project.name} />
                   {subprojects.map((sub) => (
                     <div key={sub.id} className="flex items-center gap-2.5 text-ink-3 text-xs">
                       <span className="min-w-0 flex-auto truncate">{sub.name}</span>
-                      <ProgressBar progress={sub.progress} height={4} tone="neutral" className="w-18 shrink-0" />
+                      <ProgressBar
+                        progress={sub.progress}
+                        height={4}
+                        tone="neutral"
+                        label={sub.name}
+                        className="w-18 shrink-0"
+                      />
                       <span className="w-9 shrink-0 text-right tabular-nums">
                         {sub.progress.done}/{sub.progress.total}
                       </span>

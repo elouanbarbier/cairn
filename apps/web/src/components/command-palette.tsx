@@ -30,12 +30,22 @@ import {
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { ColorSquare } from '@/components/bits';
 import { PriorityIcon, StatusIcon } from '@/components/icons';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Kbd } from '@/components/ui/kbd';
 import { formatWeekdayDate, todayISO } from '@/lib/format';
-import { queryKeys, useBulkUpdateTopics, useLabels, useLogout, useProjects, useSearch, useTopic } from '@/lib/queries';
+import {
+  queryKeys,
+  useBulkUpdateTopics,
+  useCreateLabel,
+  useLabels,
+  useLogout,
+  useProjects,
+  useSearch,
+  useTopic,
+} from '@/lib/queries';
 import { useTheme } from '@/lib/theme';
 import { useTopicPanel } from '@/lib/topic-panel';
 import { type PaletteField, useUi } from '@/lib/ui-state';
@@ -499,6 +509,7 @@ function FieldPage({
   const { t, i18n } = useTranslation();
   const targets = useTargets(refs);
   const labels = useLabels();
+  const createLabel = useCreateLabel();
   const projects = useProjects();
   const [query, setQuery] = useState('');
   // Labels toggled on this page, shown at once (the palette does not re-read the lists).
@@ -618,6 +629,28 @@ function FieldPage({
       : dated;
   }
   const visible = q && kind !== 'due' ? options.filter((o) => normalize(o.label).includes(q)) : options;
+  // Labels: a name that does not exist yet can be created and applied in one go.
+  const typedName = query.trim();
+  if (kind === 'labels' && typedName && !(labels.data ?? []).some((l) => normalize(l.name) === q)) {
+    visible.push({
+      id: 'create-label',
+      label: t('palette.createLabel', { name: typedName }),
+      icon: <PlusIcon className="size-3.5 text-ink-3" strokeWidth={2} aria-hidden />,
+      state: 'none',
+      pick: () =>
+        createLabel.mutate(
+          { name: typedName },
+          {
+            onSuccess: (label) => {
+              setLabelState((prev) => ({ ...prev, [label.id]: true }));
+              onApply({ addLabelIds: [label.id] }, false);
+              setQuery('');
+            },
+            onError: () => toast.error(t('errors.rollback')),
+          },
+        ),
+    });
+  }
   // When the options change as one types, Enter picks the first one.
   const firstId = visible[0]?.id ?? '';
   const [selected, setSelected] = useState(firstId);

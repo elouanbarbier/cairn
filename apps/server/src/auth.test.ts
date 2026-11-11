@@ -149,6 +149,8 @@ describe('administration', () => {
     const member = await login(DEMO_ACCOUNTS[1]);
     expect((await call('/accounts', { cookie: member })).status).toBe(403);
     expect((await call('/settings', { method: 'PATCH', cookie: member, body: { dormancyDays: 3 } })).status).toBe(403);
+    const labels = (await json<Array<{ id: string }>>(await call('/labels', { cookie: member }))) ?? [];
+    expect((await call(`/labels/${labels[0]?.id}`, { method: 'DELETE', cookie: member })).status).toBe(403);
     // Members still work on topics.
     expect((await call('/topics/POR-24', { method: 'PATCH', cookie: member, body: { priority: 'low' } })).status).toBe(
       200,

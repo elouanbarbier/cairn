@@ -1,0 +1,26 @@
+name: Idea or feature request
+description: Suggest something Cairn could do.
+labels: [idea]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Cairn keeps a narrow scope (projects, subprojects, topics, light enough for a Raspberry Pi). Ideas outside it
+        are still welcome: they go to docs/ideas.md for later versions.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you suggest
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: How you work around it now

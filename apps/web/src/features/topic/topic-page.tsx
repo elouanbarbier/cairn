@@ -1,6 +1,6 @@
 import type { TopicDetail } from '@cairn/shared';
 import { Link, useCanGoBack, useNavigate, useRouter } from '@tanstack/react-router';
-import { EllipsisIcon, LinkIcon, Maximize2Icon, PlusIcon } from 'lucide-react';
+import { EllipsisIcon, LinkIcon, Maximize2Icon, PlusIcon, SearchXIcon } from 'lucide-react';
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -64,8 +64,9 @@ function TopicLoader({ topicRef, panel }: { topicRef: string; panel?: { onClose:
   if (topic.isError) {
     return topic.error instanceof ApiRequestError && topic.error.status === 404 ? (
       <EmptyState
+        icon={<SearchXIcon strokeWidth={1.75} />}
         action={
-          <Link to="/" className="font-medium text-brand">
+          <Link to="/" className="font-medium text-brand underline underline-offset-2">
             {t('topic.backToOverview')}
           </Link>
         }
@@ -216,14 +217,13 @@ function TopicView({ topic, panel }: { topic: TopicDetail; panel?: { onClose: ()
         />
       </PageHeader>
 
-      <div className="flex flex-auto flex-wrap items-stretch">
-        <article
-          className={cn(
-            'box-border flex min-w-0 flex-col gap-7 px-4 pt-8 pb-14',
-            panel ? 'flex-[999_1_440px] sm:px-8' : 'flex-[999_1_520px] sm:px-12',
-          )}
-        >
-          <div className="flex max-w-[760px] flex-col gap-3">
+      {/*
+        Wide screens: the text on the left, the properties in a column on the right. Phones: the properties come right
+        after the title, so changing a status does not need scrolling past the notes.
+      */}
+      <div className="grid flex-auto grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(300px,340px)] lg:grid-rows-[auto_1fr]">
+        <div className={cn('box-border px-4 pt-8 lg:col-start-1 lg:row-start-1', panel ? 'sm:px-8' : 'sm:px-12')}>
+          <div className="max-w-[760px] pb-4">
             <InlineTitle
               key={topic.id}
               value={topic.title}
@@ -231,6 +231,26 @@ function TopicView({ topic, panel }: { topic: TopicDetail; panel?: { onClose: ()
               label={t('topic.editTitle')}
               className="font-semibold text-3xl tracking-[-0.02em]"
             />
+          </div>
+        </div>
+
+        <TopicProperties
+          topic={topic}
+          project={project}
+          users={users.data ?? []}
+          labels={labels.data ?? []}
+          open={openMenu}
+          setOpen={setOpenMenu}
+          onChange={change}
+        />
+
+        <article
+          className={cn(
+            'box-border flex min-w-0 flex-col gap-7 px-4 pt-6 pb-14 lg:col-start-1 lg:row-start-2 lg:pt-0',
+            panel ? 'sm:px-8' : 'sm:px-12',
+          )}
+        >
+          <div className="flex max-w-[760px] flex-col gap-3">
             <MarkdownEditor
               value={topic.description}
               onSave={(description) => change({ description })}
@@ -251,16 +271,6 @@ function TopicView({ topic, panel }: { topic: TopicDetail; panel?: { onClose: ()
             </ol>
           </section>
         </article>
-
-        <TopicProperties
-          topic={topic}
-          project={project}
-          users={users.data ?? []}
-          labels={labels.data ?? []}
-          open={openMenu}
-          setOpen={setOpenMenu}
-          onChange={change}
-        />
       </div>
     </>
   );
@@ -297,7 +307,13 @@ function Checklist({ topic }: { topic: TopicDetail }) {
             <span className="text-ink-4 text-xs tabular-nums">
               {topic.checklist.done}/{topic.checklist.total}
             </span>
-            <ProgressBar progress={topic.checklist} height={4} tone="success" className="w-30" />
+            <ProgressBar
+              progress={topic.checklist}
+              height={4}
+              tone="success"
+              label={t('topic.checklist')}
+              className="w-30"
+            />
           </>
         ) : null}
       </div>

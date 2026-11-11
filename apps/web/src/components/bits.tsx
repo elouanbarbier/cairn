@@ -65,24 +65,30 @@ export function LabelChip({ label, size = 'sm' }: { label: Label; size?: 'sm' | 
 }
 
 /** Thin progress bar; `tone` picks the fill token, or a data color. */
+/** Done out of total. Named for assistive technologies by `label` (what progresses), "Progress" otherwise. */
 export function ProgressBar({
   progress,
   height = 6,
   tone = 'brand',
   color,
+  label,
   className,
 }: {
   progress: Progress;
   height?: 4 | 6;
   tone?: 'brand' | 'neutral' | 'success';
   color?: string;
+  label?: string;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const pct = progress.total === 0 ? 0 : Math.round((progress.done / progress.total) * 100);
   const fill = { brand: 'bg-brand', neutral: 'bg-ink-5', success: 'bg-status-done' }[tone];
   return (
     <span
       role="progressbar"
+      aria-label={label ?? t('project.progress')}
+      aria-valuetext={t('views.doneOfTotal', { done: progress.done, total: progress.total })}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={pct}
@@ -162,10 +168,18 @@ export function Count({ children, className }: { children: ReactNode; className?
 }
 
 /** Calm empty state with an optional action. */
+/** An empty screen or list: a sober icon, what is (not) there, and the main action. */
 export function EmptyState({ icon, children, action }: { icon?: ReactNode; children: ReactNode; action?: ReactNode }) {
   return (
     <div className="flex flex-col items-center gap-3 px-6 py-10 text-center text-ink-4">
-      {icon}
+      {icon ? (
+        <span
+          aria-hidden
+          className="grid size-10 place-items-center rounded-full bg-muted text-ink-3 [&>svg]:size-[18px]"
+        >
+          {icon}
+        </span>
+      ) : null}
       <p className="m-0 max-w-sm">{children}</p>
       {action}
     </div>

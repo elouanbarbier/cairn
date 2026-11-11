@@ -9,7 +9,7 @@ import { Kbd } from '@/components/ui/kbd';
 import { filterTopics, hasFilters, parseFilters } from '@/features/project/filters';
 import { KanbanBoard } from '@/features/project/kanban-board';
 import { TopicList } from '@/features/project/topic-list';
-import { FilterMenu, ViewSwitch } from '@/features/project/view-controls';
+import { EmptyListAction, FilterMenu, ViewSwitch } from '@/features/project/view-controls';
 import { useMe, useTopics } from '@/lib/queries';
 import { useUi } from '@/lib/ui-state';
 import type { ViewSearch } from '@/router';
@@ -56,7 +56,8 @@ export function MyTopicsPage() {
             group="status"
             showProject
             dormancyDays={dormancyDays}
-            emptyLabel={hasFilters(filters) ? t('views.emptyFiltered') : t('views.empty')}
+            emptyLabel={hasFilters(filters) ? t('views.emptyFiltered') : t('views.emptyMine')}
+            emptyAction={<EmptyListAction filtered={hasFilters(filters)} />}
           />
         ) : (
           <div className="flex flex-auto flex-col pt-4">
