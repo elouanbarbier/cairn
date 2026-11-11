@@ -7,8 +7,9 @@ or `git pull && docker compose up -d --build` (from source).
 
 ## Reporting a vulnerability
 
-Please do not open a public issue. Use GitHub's private reporting instead: the repository's **Security** tab,
-then **Report a vulnerability**. Include the version, the steps to reproduce and the impact you see.
+Please do not open a public issue. Use GitHub's private reporting instead:
+[report a vulnerability](https://github.com/elouanbarbier/cairn/security/advisories/new) (the repository's
+**Security** tab). Include the version, the steps to reproduce and the impact you see.
 
 You should get an answer within a week. Once a fix is released, the advisory is published with credit to you,
 unless you prefer otherwise.

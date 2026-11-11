@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Installation guide
-    url: https://github.com/OWNER/cairn/blob/main/docs/installation.md
+    url: https://github.com/elouanbarbier/cairn/blob/main/docs/installation.md
     about: Setup on a Raspberry Pi, configuration, backups, updates and access from outside.

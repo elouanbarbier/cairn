@@ -3,6 +3,12 @@
   "version": "1.0.0",
   "description": "Self-hosted project management: projects, subprojects and topics, on a Raspberry Pi.",
   "license": "AGPL-3.0-only",
+  "homepage": "https://github.com/elouanbarbier/cairn#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elouanbarbier/cairn.git"
+  },
+  "bugs": "https://github.com/elouanbarbier/cairn/issues",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.18.0",

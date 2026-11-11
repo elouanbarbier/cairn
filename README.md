@@ -15,12 +15,12 @@ On a Raspberry Pi 4 (64-bit system) or any amd64 or arm64 host, with Docker:
 
 ```sh
 mkdir cairn && cd cairn
-curl -fsSLO https://raw.githubusercontent.com/OWNER/cairn/main/docker/compose.yaml
+curl -fsSLO https://raw.githubusercontent.com/elouanbarbier/cairn/main/docker/compose.yaml
 docker compose up -d
 ```
 
 Open `http://<host>:3000`: the first screen creates the administrator account. Data and nightly backups live in
-`./data`. To build from source instead: `git clone https://github.com/OWNER/cairn && cd cairn && docker compose up -d --build`.
+`./data`. To build from source instead: `git clone https://github.com/elouanbarbier/cairn && cd cairn && docker compose up -d --build`.
 
 The [installation guide](docs/installation.md) covers preparing the Pi, configuration, inviting people, backups,
 updates and reaching Cairn from outside.

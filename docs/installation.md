@@ -15,7 +15,7 @@ With the published image (recommended):
 
 ```sh
 mkdir cairn && cd cairn
-curl -fsSLO https://raw.githubusercontent.com/OWNER/cairn/main/docker/compose.yaml
+curl -fsSLO https://raw.githubusercontent.com/elouanbarbier/cairn/main/docker/compose.yaml
 docker compose up -d
 ```
 
@@ -24,7 +24,7 @@ Data lives in `./data` next to `compose.yaml`. The image exists for amd64 and ar
 Or from the source, which builds the image on the Pi (a few minutes the first time):
 
 ```sh
-git clone https://github.com/OWNER/cairn && cd cairn
+git clone https://github.com/elouanbarbier/cairn && cd cairn
 docker compose up -d --build
 ```
 

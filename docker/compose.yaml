@@ -1,7 +1,7 @@
 # Cairn on a Raspberry Pi (or any Docker host). Copy this file into an empty folder, then: docker compose up -d
 services:
   cairn:
-    image: ghcr.io/OWNER/cairn:latest
+    image: ghcr.io/elouanbarbier/cairn:latest
     restart: unless-stopped
     ports:
       - "3000:3000"
